@@ -1,5 +1,6 @@
 # Rust
 /target/
+cloudreve-api/target/
 **/*.rs.bk
 *.pdb
 Cargo.lock
