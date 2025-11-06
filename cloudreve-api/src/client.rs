@@ -4,6 +4,8 @@ use chrono::{DateTime, Duration, Utc};
 use reqwest::{Client as HttpClient, Method};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -110,12 +112,16 @@ impl RequestOptions {
     }
 }
 
+/// Callback type for credential refresh events
+pub type OnCredentialRefreshed = Arc<dyn Fn(Token) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
 /// Main Cloudreve API client
 pub struct Client {
     pub(crate) config: ClientConfig,
     pub(crate) http_client: HttpClient,
     pub(crate) tokens: Arc<RwLock<TokenStore>>,
     pub(crate) purchase_ticket: Arc<RwLock<Option<String>>>,
+    on_credential_refreshed: Option<OnCredentialRefreshed>,
 }
 
 impl Client {
@@ -131,7 +137,35 @@ impl Client {
             http_client,
             tokens: Arc::new(RwLock::new(TokenStore::new())),
             purchase_ticket: Arc::new(RwLock::new(None)),
+            on_credential_refreshed: None,
         }
+    }
+
+    /// Set a callback to be invoked when credentials are refreshed
+    /// 
+    /// The callback receives the new token information and can perform async operations
+    /// such as persisting tokens to storage.
+    /// 
+    /// # Example
+    /// ```no_run
+    /// use std::sync::Arc;
+    /// use std::pin::Pin;
+    /// use std::future::Future;
+    /// 
+    /// client.set_on_credential_refreshed(Arc::new(|token| {
+    ///     Box::pin(async move {
+    ///         // Save token to storage
+    ///         println!("New access token: {}", token.access_token);
+    ///     })
+    /// }));
+    /// ```
+    pub fn set_on_credential_refreshed(&mut self, callback: OnCredentialRefreshed) {
+        self.on_credential_refreshed = Some(callback);
+    }
+
+    /// Clear the credential refresh callback
+    pub fn clear_on_credential_refreshed(&mut self) {
+        self.on_credential_refreshed = None;
     }
 
     /// Set authentication tokens
@@ -230,6 +264,11 @@ impl Client {
 
         // Update tokens
         self.set_tokens_with_expiry(&token).await;
+
+        // Invoke callback if set
+        if let Some(ref callback) = self.on_credential_refreshed {
+            callback(token.clone()).await;
+        }
 
         Ok(token.access_token)
     }

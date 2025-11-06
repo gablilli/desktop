@@ -28,3 +28,7 @@ pub struct PaginationArgs {
     pub next_page_token: Option<String>,
 }
 
+pub struct ListAllRes<T> {
+    pub res: T,
+    pub more: bool,
+}

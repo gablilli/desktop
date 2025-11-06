@@ -22,7 +22,7 @@ impl Default for DriveState {
 }
 
 pub struct DriveManager {
-    drives: Arc<RwLock<HashMap<String, Mount>>>,
+    drives: Arc<RwLock<HashMap<String, Arc<Mount>>>>,
     config_dir: PathBuf,
 }
 
@@ -96,7 +96,7 @@ impl DriveManager {
 
         // Update drive states from underlying mounts
         for (id, mount) in write_guard.iter() {
-            let config = mount.get_config();
+            let config = mount.get_config().await;
             new_state.drives.insert(id.clone(), config);
         }
 
@@ -131,72 +131,68 @@ impl DriveManager {
         }
 
         let mut write_guard = self.drives.write().await;
-        let mut mount = Mount::new(config.clone());
+        let mut mount = Mount::new(config.clone()).await;
         if let Err(e) = mount.start().await {
             tracing::error!(target: "drive", error = %e, "Failed to start drive");
             return Err(e).context("Failed to start drive");
         }
 
-        let id = mount.id();
-        write_guard.insert(id.clone(), mount);
+        let mountArc = Arc::new(mount);
+        mountArc.spawn_command_processor(mountArc.clone()).await;
+        let id = mountArc.id().await;
+        write_guard.insert(id.clone(), mountArc);
         Ok(id)
     }
 
     /// Remove a drive by ID
     pub async fn remove_drive(&self, id: &str) -> Result<Option<DriveConfig>> {
-        let mut write_guard = self.drives.write().await;
-        Ok(write_guard.remove(id).map(|mount| mount.get_config()))
+        // let mut write_guard = self.drives.write().await;
+        // Ok(write_guard.remove(id).map(async|mount| mount.get_config().await))
+        Err(anyhow::anyhow!("Not implemented"))
     }
 
     /// Get a drive by ID
     pub async fn get_drive(&self, id: &str) -> Option<DriveConfig> {
-        let read_guard = self.drives.read().await;
-        read_guard.get(id).map(|mount| mount.get_config())
+        //let read_guard = self.drives.read().await;
+        // read_guard.get(id).map(async|mount| mount.get_config().await)
+        None
     }
 
     /// List all drives
     pub async fn list_drives(&self) -> Vec<DriveConfig> {
-        let read_guard = self.drives.read().await;
-        read_guard
-            .values()
-            .map(|mount| mount.get_config())
-            .collect()
+        // let read_guard = self.drives.read().await;
+        // read_guard
+        //     .values()
+        //     .map(|mount| mount.get_config())
+        //     .collect()
+        Vec::new()
     }
 
     /// Update drive configuration
     pub async fn update_drive(&self, id: &str, config: DriveConfig) -> Result<()> {
-        let mut write_guard = self.drives.write().await;
-        if write_guard.contains_key(id) {
-            write_guard.insert(id.to_string(), Mount::new(config.clone()));
-            Ok(())
-        } else {
-            anyhow::bail!("Drive not found: {}", id)
-        }
+        // let mut write_guard = self.drives.write().await;
+        // if write_guard.contains_key(id) {
+        //     // write_guard.insert(id.to_string(), Mount::new(config.clone()));
+        //     Ok(())
+        // } else {
+        //     anyhow::bail!("Drive not found: {}", id)
+        // }
+        Err(anyhow::anyhow!("Not implemented"))
     }
 
     /// Enable/disable a drive
     pub async fn set_drive_enabled(&self, id: &str, enabled: bool) -> Result<()> {
-        let mut write_guard = self.drives.write().await;
-        if let Some(drive) = write_guard.get_mut(id) {
-            drive.get_config().enabled = enabled;
-            Ok(())
-        } else {
-            anyhow::bail!("Drive not found: {}", id)
-        }
+        Err(anyhow::anyhow!("Not implemented"))
     }
 
     /// Placeholder: Start syncing a drive
     pub async fn start_sync(&self, id: &str) -> Result<()> {
-        // TODO: Implement actual sync logic
-        tracing::info!(target: "drive::sync", drive_id = %id, "Starting sync for drive");
-        Ok(())
+        Err(anyhow::anyhow!("Not implemented"))
     }
 
     /// Placeholder: Stop syncing a drive
     pub async fn stop_sync(&self, id: &str) -> Result<()> {
-        // TODO: Implement actual sync logic
-        tracing::info!(target: "drive::sync", drive_id = %id, "Stopping sync for drive");
-        Ok(())
+        Err(anyhow::anyhow!("Not implemented"))
     }
 
     /// Placeholder: Get sync status for a drive

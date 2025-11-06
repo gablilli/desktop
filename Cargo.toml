@@ -27,6 +27,7 @@ nt-time = "0.8.0"
 widestring = "1.0.2"
 flagset = "0.4.5"
 memoffset = "0.9.1"
+chrono = "0.4.42"
 
 [dependencies.windows]
 version = "0.58.0"

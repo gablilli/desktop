@@ -76,6 +76,7 @@ pub async fn get_drive(
 }
 
 /// Add a new drive
+#[axum::debug_handler]
 pub async fn add_drive(
     State(state): State<AppState>,
     Json(req): Json<AddDriveRequest>,

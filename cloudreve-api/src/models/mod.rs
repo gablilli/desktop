@@ -6,3 +6,4 @@ pub mod site;
 pub mod user;
 pub mod vas;
 pub mod workflow;
+pub mod uri;
