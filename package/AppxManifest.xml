@@ -59,7 +59,7 @@
         </desktop3:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:ExeServer DisplayName="Cloud Mirror Command Handler" Executable="sftp.exe">
+            <com:ExeServer DisplayName="Cloud Mirror Command Handler" Executable="cloudreve-sync.exe">
               <com:Class Id="165cd069-d9c8-42b4-8e37-b6971afa4494" />
             </com:ExeServer>
           </com:ComServer>

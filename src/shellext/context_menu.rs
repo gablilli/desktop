@@ -55,7 +55,7 @@ impl IExplorerCommand_Impl for TestExplorerCommandHandler_Impl {
     }
 
     fn GetIcon(&self, _items: Option<&IShellItemArray>) -> Result<PWSTR> {
-        let icon_path = format!("{}\\web.svg", self.images_path);
+        let icon_path = format!("{}\\web3.png", self.images_path);
         let hstring = HSTRING::from(icon_path);
         unsafe { SHStrDupW(&hstring) }
     }
