@@ -1,6 +1,7 @@
-use super::{FileMetadata, MetadataEntry, Result};
-use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashMap;
+use super::{FileMetadata, MetadataEntry};
+use anyhow::Result;
+use dirs::home_dir;
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use uuid::Uuid;
@@ -9,6 +10,7 @@ const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS file_metadata (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     drive_id TEXT NOT NULL,
+    is_folder INTEGER NOT NULL,
     local_path TEXT NOT NULL UNIQUE,
     remote_uri TEXT NOT NULL,
     created_at INTEGER NOT NULL,
@@ -55,8 +57,7 @@ impl InventoryDb {
 
     /// Get the default database path (~/.cloudreve/meta.db)
     fn get_db_path() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .ok_or("Unable to determine home directory")?;
+        let home = dirs::home_dir().ok_or(anyhow::anyhow!("Unable to determine home directory"))?;
         Ok(home.join(".cloudreve").join("meta.db"))
     }
 
@@ -67,28 +68,71 @@ impl InventoryDb {
         Ok(())
     }
 
+    pub fn batch_insert(&self, entries: &[MetadataEntry]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        for entry in entries {
+            let metadata_json = serde_json::to_string(&entry.metadata)?;
+            let props_json = entry
+                .props
+                .as_ref()
+                .map(|p| serde_json::to_string(p))
+                .transpose()?;
+
+            tx.execute(
+                r#"
+                INSERT INTO file_metadata 
+                (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                "#,
+                params![
+                    entry.drive_id.to_string(),
+                    entry.is_folder,
+                    entry.local_path,
+                    entry.remote_uri,
+                    entry.created_at,
+                    entry.updated_at,
+                    entry.etag,
+                    metadata_json,
+                    props_json,
+                ],
+            )?;
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
     /// Insert a new file metadata entry
     pub fn insert(&self, entry: &MetadataEntry) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp();
-        
+
         let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry.props.as_ref()
+        let props_json = entry
+            .props
+            .as_ref()
             .map(|p| serde_json::to_string(p))
             .transpose()?;
 
         conn.execute(
             r#"
             INSERT INTO file_metadata 
-            (drive_id, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 entry.drive_id.to_string(),
+                entry.is_folder,
                 entry.local_path,
                 entry.remote_uri,
-                now,
-                now,
+                entry.created_at,
+                entry.updated_at,
                 entry.etag,
                 metadata_json,
                 props_json,
@@ -102,9 +146,11 @@ impl InventoryDb {
     pub fn update(&self, entry: &MetadataEntry) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp();
-        
+
         let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry.props.as_ref()
+        let props_json = entry
+            .props
+            .as_ref()
             .map(|p| serde_json::to_string(p))
             .transpose()?;
 
@@ -112,15 +158,17 @@ impl InventoryDb {
             r#"
             UPDATE file_metadata 
             SET drive_id = ?1, 
-                remote_uri = ?2, 
-                updated_at = ?3, 
-                etag = ?4, 
-                metadata = ?5, 
-                props = ?6
-            WHERE local_path = ?7
+                is_folder = ?2,
+                remote_uri = ?3, 
+                updated_at = ?4, 
+                etag = ?5, 
+                metadata = ?6, 
+                props = ?7
+            WHERE local_path = ?8
             "#,
             params![
                 entry.drive_id.to_string(),
+                entry.is_folder,
                 entry.remote_uri,
                 now,
                 entry.etag,
@@ -137,19 +185,22 @@ impl InventoryDb {
     pub fn upsert(&self, entry: &MetadataEntry) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().timestamp();
-        
+
         let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry.props.as_ref()
+        let props_json = entry
+            .props
+            .as_ref()
             .map(|p| serde_json::to_string(p))
             .transpose()?;
 
         conn.execute(
             r#"
             INSERT INTO file_metadata 
-            (drive_id, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
+            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             ON CONFLICT(local_path) DO UPDATE SET
                 drive_id = excluded.drive_id,
+                is_folder = excluded.is_folder,
                 remote_uri = excluded.remote_uri,
                 updated_at = excluded.updated_at,
                 etag = excluded.etag,
@@ -158,6 +209,7 @@ impl InventoryDb {
             "#,
             params![
                 entry.drive_id.to_string(),
+                entry.is_folder,
                 entry.local_path,
                 entry.remote_uri,
                 now,
@@ -174,17 +226,18 @@ impl InventoryDb {
     /// Query file metadata by local path
     pub fn query_by_path(&self, local_path: &str) -> Result<Option<FileMetadata>> {
         let conn = self.conn.lock().unwrap();
-        
+
         let result = conn
             .query_row(
                 r#"
-                SELECT id, drive_id, local_path, remote_uri, created_at, updated_at, etag, metadata, props
+                SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props
                 FROM file_metadata
                 WHERE local_path = ?1
                 "#,
                 params![local_path],
                 |row| {
                     let drive_id_str: String = row.get(1)?;
+                    let is_folder: bool = row.get(2)?;
                     let metadata_json: String = row.get(7)?;
                     let props_json: Option<String> = row.get(8)?;
 
@@ -197,8 +250,9 @@ impl InventoryDb {
                                 Box::new(e),
                             )
                         })?,
-                        local_path: row.get(2)?,
-                        remote_uri: row.get(3)?,
+                        is_folder,
+                        local_path: row.get(3)?,
+                        remote_uri: row.get(4)?,
                         created_at: row.get(4)?,
                         updated_at: row.get(5)?,
                         etag: row.get(6)?,
@@ -232,7 +286,7 @@ impl InventoryDb {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, drive_id, local_path, remote_uri, created_at, updated_at, etag, metadata, props
+            SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props
             FROM file_metadata
             WHERE drive_id = ?1
             ORDER BY local_path
@@ -241,8 +295,9 @@ impl InventoryDb {
 
         let rows = stmt.query_map(params![drive_id.to_string()], |row| {
             let drive_id_str: String = row.get(1)?;
-            let metadata_json: String = row.get(7)?;
-            let props_json: Option<String> = row.get(8)?;
+            let is_folder: bool = row.get(2)?;
+            let metadata_json: String = row.get(78)?;
+            let props_json: Option<String> = row.get(9)?;
 
             Ok(FileMetadata {
                 id: row.get(0)?,
@@ -253,11 +308,12 @@ impl InventoryDb {
                         Box::new(e),
                     )
                 })?,
-                local_path: row.get(2)?,
-                remote_uri: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
-                etag: row.get(6)?,
+                is_folder: row.get(2)?,
+                local_path: row.get(3)?,
+                remote_uri: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+                etag: row.get(7)?,
                 metadata: serde_json::from_str(&metadata_json).map_err(|e| {
                     rusqlite::Error::FromSqlConversionFailure(
                         7,
@@ -311,11 +367,8 @@ impl InventoryDb {
     /// Get total count of entries in the database
     pub fn count(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM file_metadata",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM file_metadata", [], |row| row.get(0))?;
 
         Ok(count)
     }

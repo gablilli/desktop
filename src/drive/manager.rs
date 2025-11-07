@@ -1,3 +1,5 @@
+use super::mounts::{DriveConfig, Mount};
+use crate::inventory::{self, InventoryDb};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -5,8 +7,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-
-use super::mounts::{DriveConfig, Mount};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriveState {
@@ -24,6 +24,7 @@ impl Default for DriveState {
 pub struct DriveManager {
     drives: Arc<RwLock<HashMap<String, Arc<Mount>>>>,
     config_dir: PathBuf,
+    inventory: Arc<InventoryDb>,
 }
 
 impl DriveManager {
@@ -40,6 +41,7 @@ impl DriveManager {
         Ok(Self {
             config_dir,
             drives: Arc::new(RwLock::new(HashMap::new())),
+            inventory: Arc::new(InventoryDb::new().context("Failed to create inventory database")?),
         })
     }
 
@@ -131,7 +133,7 @@ impl DriveManager {
         }
 
         let mut write_guard = self.drives.write().await;
-        let mut mount = Mount::new(config.clone()).await;
+        let mut mount = Mount::new(config.clone(), self.inventory.clone()).await;
         if let Err(e) = mount.start().await {
             tracing::error!(target: "drive", error = %e, "Failed to start drive");
             return Err(e).context("Failed to start drive");
@@ -139,7 +141,7 @@ impl DriveManager {
 
         let mount_arc = Arc::new(mount);
         mount_arc.spawn_command_processor(mount_arc.clone()).await;
-        let id = mount_arc.id().await;
+        let id = mount_arc.id.clone();
         write_guard.insert(id.clone(), mount_arc);
         Ok(id)
     }

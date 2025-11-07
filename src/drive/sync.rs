@@ -1,4 +1,8 @@
-use crate::{cfapi::{metadata::Metadata, placeholder_file::PlaceholderFile}, drive::utils::remote_path_to_local_relative_path};
+use crate::{
+    cfapi::{metadata::Metadata, placeholder_file::PlaceholderFile},
+    drive::utils::remote_path_to_local_relative_path,
+    inventory::MetadataEntry,
+};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use cloudreve_api::models::{
@@ -6,7 +10,8 @@ use cloudreve_api::models::{
     uri::CrUri,
 };
 use nt_time::FileTime;
-use std::{ffi::OsString, path::PathBuf};
+use std::{collections::HashMap, ffi::OsString, path::PathBuf};
+use uuid::Uuid;
 
 pub fn cloud_file_to_placeholder(
     file: &FileResponse,
@@ -22,7 +27,7 @@ pub fn cloud_file_to_placeholder(
     // Parse RFC time string to unix timestamp
     let created_at =
         FileTime::from_unix_time(file.created_at.parse::<DateTime<Utc>>()?.timestamp())?;
-        let last_modified =
+    let last_modified =
         FileTime::from_unix_time(file.updated_at.parse::<DateTime<Utc>>()?.timestamp())?;
 
     Ok(PlaceholderFile::new(relative_path)
@@ -38,4 +43,42 @@ pub fn cloud_file_to_placeholder(
         .mark_in_sync()
         .overwrite()
         .blob(primary_entity.into_encoded_bytes()))
+}
+
+pub fn cloud_file_to_metadata_entry(
+    file: &FileResponse,
+    drive_id: &Uuid,
+    local_path: &PathBuf,
+) -> Result<MetadataEntry> {
+    let mut local_path = local_path.clone();
+    local_path.push(file.name.clone());
+    let local_path_str = local_path.to_str();
+    if local_path_str.is_none() {
+        tracing::error!(
+            target: "drive::mounts",
+            local_path = %local_path.display(),
+            error = "Failed to convert local path to string"
+        );
+        return Err(anyhow::anyhow!("Failed to convert local path to string"));
+    }
+
+    // Parse RFC time string to unix timestamp
+    let created_at = file.created_at.parse::<DateTime<Utc>>()?.timestamp();
+    let last_modified = file.updated_at.parse::<DateTime<Utc>>()?.timestamp();
+
+    Ok(MetadataEntry::new(
+        drive_id.clone(),
+        local_path_str.unwrap(),
+        file.path.clone(),
+        file.file_type == file_type::FOLDER,
+    )
+    .with_created_at(created_at)
+    .with_updated_at(last_modified)
+    .with_etag(
+        file.primary_entity
+            .as_ref()
+            .unwrap_or(&String::new())
+            .clone(),
+    )
+    .with_metadata(file.metadata.as_ref().unwrap_or(&HashMap::new()).clone()))
 }

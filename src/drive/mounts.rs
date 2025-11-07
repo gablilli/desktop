@@ -4,6 +4,7 @@ use crate::cfapi::root::{
 };
 use crate::drive::callback::CallbackHandler;
 use crate::drive::commands::MountCommand;
+use crate::inventory::InventoryDb;
 use crate::tasks::{TaskManager, TaskManagerConfig};
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
@@ -14,12 +15,13 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::spawn;
 use tokio::sync::{Mutex, RwLock, mpsc};
 use url::Url;
 use windows::Storage::Provider::StorageProviderSyncRootManager;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DriveConfig {
-    pub id: Option<String>,
+    pub id: String,
     pub name: String,
     pub instance_url: String,
     pub remote_path: String,
@@ -52,10 +54,12 @@ pub struct Mount {
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub cr_client: Arc<Client>,
+    pub inventory: Arc<InventoryDb>,
+    pub id: String,
 }
 
 impl Mount {
-    pub async fn new(config: DriveConfig) -> Self {
+    pub async fn new(config: DriveConfig, inventory: Arc<InventoryDb>) -> Self {
         let task_config = TaskManagerConfig {
             max_workers: 4,
             completed_buffer_size: 100,
@@ -89,6 +93,8 @@ impl Mount {
                 })
         }));
 
+        let id = config.id.clone();
+
         Self {
             config: Arc::new(RwLock::new(config)),
             queue: task_manager,
@@ -97,6 +103,8 @@ impl Mount {
             command_rx: Arc::new(tokio::sync::Mutex::new(Some(command_rx))),
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cr_client: Arc::new(cr_client),
+            inventory: inventory,
+            id,
         }
     }
 
@@ -111,7 +119,6 @@ impl Mount {
             return Err(anyhow::anyhow!("Cloud Filter API is not supported"));
         }
 
-        let id = self.id().await;
         let mut write_guard = self.config.write().await;
 
         // if sync root id is not set, generate one
@@ -134,7 +141,7 @@ impl Mount {
 
         // Register sync root if not registered
         if !sync_root_id.is_registered()? {
-            tracing::info!(target: "drive::mounts", id = %id, "Registering sync root");
+            tracing::info!(target: "drive::mounts", id = %self.id, "Registering sync root");
             let mut sync_root_info = SyncRootInfo::default();
             sync_root_info.set_display_name(config.name.clone());
             sync_root_info.set_hydration_type(HydrationType::Progressive);
@@ -154,11 +161,16 @@ impl Mount {
                 .context("failed to register sync root")?;
         }
 
-        tracing::info!(target: "drive::mounts",sync_path = %config.sync_path.display(), id = %id, "Connecting to sync root");
+        tracing::info!(target: "drive::mounts",sync_path = %config.sync_path.display(), id = %self.id, "Connecting to sync root");
         let connection = Session::new()
             .connect(
                 &config.sync_path,
-                CallbackHandler::new(config.clone(), self.command_tx.clone()),
+                CallbackHandler::new(
+                    config.clone(),
+                    self.command_tx.clone(),
+                    self.id.clone(),
+                    self.inventory.clone(),
+                ),
             )
             .context("failed to connect to sync root")?;
 
@@ -170,21 +182,12 @@ impl Mount {
         // Spawn the command processor task
         let mut command_rx_guard = self.command_rx.lock().await;
         if let Some(command_rx) = command_rx_guard.take() {
-            let mount_id = self.id().await;
+            let mount_id = self.id.to_string();
             let handle = tokio::spawn(async move {
                 Self::process_commands(s, mount_id, command_rx).await;
             });
             *self.processor_handle.lock().await = Some(handle);
         }
-    }
-
-    pub async fn id(&self) -> String {
-        self.config
-            .read()
-            .await
-            .id
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
     }
 
     /// Process commands from OS threads asynchronously
@@ -200,14 +203,18 @@ impl Mount {
 
             match command {
                 MountCommand::FetchPlaceholders { path, response } => {
-                    let result = s.fetch_placeholders(path).await;
-                    if let Err(e) = result {
-                        tracing::error!(target: "drive::mounts", id = %mount_id, error = %e, "Failed to fetch placeholders");
-                        let _ = response.send(Err(e));
-                        continue;
-                    }
-                    tracing::debug!(target: "drive::mounts", id = %mount_id, result = ?result, "Fetched placeholders");
-                    let _ = response.send(result);
+                    let s_clone = s.clone();
+                    let mount_id_clone = mount_id.clone();
+                    spawn(async move {
+                        let result = s_clone.fetch_placeholders(path).await;
+                        if let Err(e) = result {
+                            tracing::error!(target: "drive::mounts", id = %mount_id_clone, error = %e, "Failed to fetch placeholders");
+                            let _ = response.send(Err(e));
+                            return;
+                        }
+                        tracing::debug!(target: "drive::mounts", id = %mount_id_clone, result = ?result, "Fetched placeholders");
+                        let _ = response.send(result);
+                    });
                 }
                 MountCommand::RefreshCredentials { credentials } => {
                     let mut config = s.config.write().await;
@@ -229,16 +236,14 @@ impl Mount {
     }
 
     pub async fn shutdown(&self) {
-        let id = self.id().await;
-
-        tracing::info!(target: "drive::mounts", id=id, "Shutting down Mount");
+        tracing::info!(target: "drive::mounts", id=%self.id, "Shutting down Mount");
 
         // Close the command channel to signal the processor task to stop
         drop(self.command_tx.clone());
 
         // Wait for the processor task to finish
         if let Some(handle) = self.processor_handle.lock().await.take() {
-            tracing::debug!(target: "drive::mounts", id=id, "Waiting for command processor to finish");
+            tracing::debug!(target: "drive::mounts", id=%self.id, "Waiting for command processor to finish");
             handle.abort();
         }
 
@@ -247,7 +252,7 @@ impl Mount {
         }
         if let Some(sync_root_id) = self.config.read().await.sync_root_id.as_ref() {
             if let Err(e) = sync_root_id.unregister() {
-                tracing::warn!(target: "drive::mounts", id=id, error=%e, "Failed to unregister sync root");
+                tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to unregister sync root");
             }
         }
         self.queue.shutdown().await;

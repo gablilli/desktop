@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use crate::{
     cfapi::{
@@ -6,26 +6,38 @@ use crate::{
         filter::{Request, SyncFilter, info, ticket},
         placeholder_file::PlaceholderFile,
     },
-    drive::{commands::MountCommand, mounts::DriveConfig, sync::cloud_file_to_placeholder},
+    drive::{
+        commands::MountCommand,
+        mounts::DriveConfig,
+        sync::{cloud_file_to_metadata_entry, cloud_file_to_placeholder},
+    },
+    inventory::{InventoryDb, MetadataEntry},
 };
+use cloudreve_api::models::explorer::file_type;
 use tokio::sync::mpsc;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct CallbackHandler {
     config: DriveConfig,
     command_tx: mpsc::UnboundedSender<MountCommand>,
+    id: String,
+    inventory: Arc<InventoryDb>,
 }
 
 impl CallbackHandler {
-    pub fn new(config: DriveConfig, command_tx: mpsc::UnboundedSender<MountCommand>) -> Self {
-        Self { config, command_tx }
-    }
-
-    pub fn id(&self) -> String {
-        self.config
-            .id
-            .clone()
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string())
+    pub fn new(
+        config: DriveConfig,
+        command_tx: mpsc::UnboundedSender<MountCommand>,
+        id: String,
+        inventory: Arc<InventoryDb>,
+    ) -> Self {
+        Self {
+            config,
+            command_tx,
+            id: id,
+            inventory: inventory,
+        }
     }
 
     pub async fn sleep(&self) {
@@ -44,11 +56,11 @@ impl SyncFilter for CallbackHandler {
     }
 
     fn deleted(&self, request: Request, _info: info::Deleted) {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), path = %request.path().display(), "Deleted");
+        tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), "Deleted");
     }
 
     fn delete(&self, request: Request, ticket: ticket::Delete, info: info::Delete) -> CResult<()> {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), path = %request.path().display(), "Delete");
+        tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), "Delete");
         ticket.pass().unwrap();
         Ok(())
     }
@@ -56,7 +68,7 @@ impl SyncFilter for CallbackHandler {
     fn rename(&self, request: Request, ticket: ticket::Rename, info: info::Rename) -> CResult<()> {
         let src = request.path();
         let dest = info.target_path();
-        tracing::debug!(target: "drive::mounts", id = %self.id(), source_path = %src.display(), target_path = %dest.display(), "Rename");
+        tracing::debug!(target: "drive::mounts", id = %self.id, source_path = %src.display(), target_path = %dest.display(), "Rename");
         Err(CloudErrorKind::NotSupported)
     }
 
@@ -72,29 +84,48 @@ impl SyncFilter for CallbackHandler {
             response: response_tx,
         };
         if let Err(e) = self.command_tx.send(command) {
-            tracing::error!(target: "drive::mounts", id = %self.id(), error = %e, "Failed to send FetchPlaceholders command");
+            tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to send FetchPlaceholders command");
             return Err(CloudErrorKind::NotSupported);
         }
 
         match response_rx.blocking_recv() {
             Ok(Ok(files)) => {
-                tracing::debug!(target: "drive::mounts", id = %self.id(), files = %files.files.len(), "Received placeholders");
+                tracing::debug!(target: "drive::mounts", id = %self.id, files = %files.files.len(), "Received placeholders");
                 let mut placeholders = files.files.iter()
                     .map(|file| cloud_file_to_placeholder(file, &files.local_path, &files.remote_path))
                     .filter_map(|result|{
                         if result.is_ok() {
                             Some(result.unwrap())
                         } else {
-                            tracing::error!(target: "drive::mounts", id = %self.id(), error = %result.unwrap_err(), "Failed to convert cloud file to placeholder");
+                            tracing::error!(target: "drive::mounts", id = %self.id, error = %result.unwrap_err(), "Failed to convert cloud file to placeholder");
                             None
                         }
                     })
                     .collect::<Vec<PlaceholderFile>>();
                 if let Err(e) = ticket.pass_with_placeholder(&mut placeholders) {
-                    tracing::error!(target: "drive::mounts", id = %self.id(), error = %e, "Failed to pass placeholders");
+                    tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to pass placeholders");
                     return Err(CloudErrorKind::Unsuccessful);
                 }
-                tracing::debug!(target: "drive::mounts", id = %self.id(), placeholders = %placeholders.len(), "Passed placeholders");
+                tracing::debug!(target: "drive::mounts", id = %self.id, placeholders = %placeholders.len(), "Passed placeholders");
+
+                // Insert placeholders into inventory
+                let drive_id = Uuid::parse_str(&self.id)
+                    .unwrap_or_else(|e| {
+                        tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to parse drive ID");
+                        return Uuid::new_v4();
+                    });
+                let entries = files
+                    .files
+                    .iter()
+                    .filter_map(|f| {
+                        cloud_file_to_metadata_entry(f, &drive_id, &files.local_path).map_err(|e| {
+                            tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to convert cloud file to metadata entry");
+                        }).ok()
+                    })
+                    .collect::<Vec<MetadataEntry>>();
+                if let Err(e) = self.inventory.batch_insert(&entries) {
+                    tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to insert placeholders into inventory");
+                }
                 return Ok(());
             }
             _ => {}
@@ -104,11 +135,11 @@ impl SyncFilter for CallbackHandler {
     }
 
     fn closed(&self, request: Request, info: info::Closed) {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), path = %request.path().display(), deleted = %info.deleted(), "Closed");
+        tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), deleted = %info.deleted(), "Closed");
     }
 
     fn cancel_fetch_data(&self, _request: Request, _info: info::CancelFetchData) {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), "CancelFetchData");
+        tracing::debug!(target: "drive::mounts", id = %self.id, "CancelFetchData");
     }
 
     fn validate_data(
@@ -117,16 +148,16 @@ impl SyncFilter for CallbackHandler {
         ticket: ticket::ValidateData,
         info: info::ValidateData,
     ) -> CResult<()> {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), "ValidateData");
+        tracing::debug!(target: "drive::mounts", id = %self.id, "ValidateData");
         Err(CloudErrorKind::NotSupported)
     }
 
     fn cancel_fetch_placeholders(&self, request: Request, info: info::CancelFetchPlaceholders) {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), "CancelFetchPlaceholders");
+        tracing::debug!(target: "drive::mounts", id = %self.id, "CancelFetchPlaceholders");
     }
 
     fn opened(&self, request: Request, _info: info::Opened) {
-        tracing::debug!(target: "drive::mounts", id = %self.id(), path = %request.path().display(), "Opened");
+        tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), "Opened");
     }
 
     fn dehydrate(
@@ -137,7 +168,7 @@ impl SyncFilter for CallbackHandler {
     ) -> CResult<()> {
         tracing::debug!(
             target: "drive::mounts",
-            id = %self.id(),
+            id = %self.id,
             reason = ?info.reason(),
             "Dehydrate"
         );
@@ -147,7 +178,7 @@ impl SyncFilter for CallbackHandler {
     fn dehydrated(&self, _request: Request, info: info::Dehydrated) {
         tracing::debug!(
             target: "drive::mounts",
-            id = %self.id(),
+            id = %self.id,
             reason = ?info.reason(),
             "Dehydrated"
         );
@@ -155,6 +186,6 @@ impl SyncFilter for CallbackHandler {
 
     fn renamed(&self, _request: Request, info: info::Renamed) {
         let dest = info.source_path();
-        tracing::debug!(target: "drive::mounts", id = %self.id(), dest_path = %dest.display(), "Renamed");
+        tracing::debug!(target: "drive::mounts", id = %self.id, dest_path = %dest.display(), "Renamed");
     }
 }
