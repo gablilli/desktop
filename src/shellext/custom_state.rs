@@ -63,16 +63,18 @@ impl IStorageProviderItemPropertySource_Impl for CustomStateHandler_Impl {
             vec.push(Some(properties));
         }
 
-        let permission = Boolset::from_base64(&file_metadata.permissions).map_err(|e| {
-            tracing::error!(target: "shellext::custom_state", "Failed to parse permission for path {}: {:?}", itempath, e);
-            Error::from(E_FAIL)
-        })?;
-        if !permission.enabled(file_permission::READ as usize) {
-            let properties = StorageProviderItemProperty::new()?;
-            properties.SetId(2)?;
-            properties.SetIconResource(&HSTRING::from(format!("{}\\lock.ico,0", image_path)))?;
-            properties.SetValue(&HSTRING::from(t!("noAccess").as_ref()))?;
-            vec.push(Some(properties));
+        if (!file_metadata.permissions.is_empty()) {
+            let permission = Boolset::from_base64(&file_metadata.permissions).map_err(|e| {
+                tracing::error!(target: "shellext::custom_state", "Failed to parse permission for path {}: {:?}", itempath, e);
+                Error::from(E_FAIL)
+            })?;
+            if !permission.enabled(file_permission::READ as usize) {
+                let properties = StorageProviderItemProperty::new()?;
+                properties.SetId(2)?;
+                properties.SetIconResource(&HSTRING::from(format!("{}\\lock.ico,0", image_path)))?;
+                properties.SetValue(&HSTRING::from(t!("noAccess").as_ref()))?;
+                vec.push(Some(properties));
+            }
         }
 
         IIterable::<StorageProviderItemProperty>::try_from(vec)
