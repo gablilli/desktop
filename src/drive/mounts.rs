@@ -46,6 +46,15 @@ pub struct Credentials {
     pub access_expires: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MountStatus {
+    InSync,
+    Syncing,
+    Paused,
+    Error,
+    Warnning,
+}
+
 pub struct Mount {
     queue: Arc<TaskManager>,
     pub config: Arc<RwLock<DriveConfig>>,
@@ -53,6 +62,7 @@ pub struct Mount {
     command_tx: mpsc::UnboundedSender<MountCommand>,
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    status: Arc<RwLock<MountStatus>>,
     pub cr_client: Arc<Client>,
     pub inventory: Arc<InventoryDb>,
     pub id: String,
@@ -104,6 +114,7 @@ impl Mount {
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cr_client: Arc::new(cr_client),
             inventory: inventory,
+            status: Arc::new(RwLock::new(MountStatus::InSync)),
             id,
         }
     }
@@ -240,6 +251,10 @@ impl Mount {
     async fn handle_fetch_placeholders(path: PathBuf) -> Result<()> {
         tracing::debug!(target: "drive::mounts", path = %path.display(), "FetchPlaceholders");
         Ok(())
+    }
+
+    async fn get_status(&self) -> MountStatus {
+        self.status.read().await.clone()
     }
 
     pub async fn shutdown(&self) {

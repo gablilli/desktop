@@ -1,6 +1,7 @@
 use super::context_menu::*;
 use crate::drive::manager::DriveManager;
 use crate::shellext::custom_state::{CLSID_CUSTOM_STATE_HANDLER, CustomStateHandlerFactory};
+use crate::shellext::status_ui::{CLSID_STATUS_UI_HANDLER, StatusUIHandlerFactory};
 use rust_i18n::t;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -32,6 +33,12 @@ pub fn init_and_start_service_task(drive_manager: Arc<DriveManager>) -> ServiceH
 
         if let Err(e) = services.init_and_start_view_online_handler() {
             tracing::error!(target: "shellext::shell_service", "Failed to initialize view online handler: {:?}", e);
+            let _ = tx.send(Err(e));
+            return;
+        }
+
+        if let Err(e) = services.init_and_start_status_ui_handler() {
+            tracing::error!(target: "shellext::shell_service", "Failed to initialize status ui handler: {:?}", e);
             let _ = tx.send(Err(e));
             return;
         }
@@ -88,6 +95,27 @@ impl ShellServices {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
         }
+        Ok(())
+    }
+
+    pub fn init_and_start_status_ui_handler(&mut self) -> Result<()> {
+        tracing::info!(target: "shellext::status_ui", "Initializing Shell Services (Status UI Handler)...");
+
+        unsafe {
+            let factory: IClassFactory =
+                StatusUIHandlerFactory::new(self.drive_manager.clone()).into();
+
+            let cookie = CoRegisterClassObject(
+                &CLSID_STATUS_UI_HANDLER,
+                &factory,
+                CLSCTX_LOCAL_SERVER,
+                REGCLS_MULTIPLEUSE,
+            )?;
+
+            self.cookies.push(cookie);
+            tracing::info!(target: "shellext::status_ui", "Status UI Handler registered with cookie: {}", cookie);
+        }
+
         Ok(())
     }
 

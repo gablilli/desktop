@@ -6,9 +6,10 @@ use anyhow::{Context, Result};
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use std::{fs, thread};
 use tokio::spawn;
 use tokio::sync::{Mutex, RwLock, mpsc};
 
@@ -124,6 +125,22 @@ impl DriveManager {
 
         tracing::info!(target: "drive", count = new_state.drives.len(), "Persisted drive(s) to config");
 
+        Ok(())
+    }
+
+    /// Register a callback to be invoked when status UI changes
+    /// This is a dummy implementation that calls the callback every 30 seconds
+    pub fn register_on_status_ui_changed<F>(&self, fnc: F) -> Result<()>
+    where
+        F: Fn() + Send + 'static,
+    {
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(30));
+                tracing::trace!(target: "drive::manager", "Register_on_status_ui_changed: Invoking status UI changed callback");
+                fnc();
+            }
+        });
         Ok(())
     }
 
