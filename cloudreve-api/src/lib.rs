@@ -37,9 +37,11 @@
 //! ```
 
 pub mod api;
+pub mod boolset;
 pub mod client;
 pub mod error;
 pub mod models;
 
+pub use boolset::Boolset;
 pub use client::{Client, ClientConfig};
 pub use error::{ApiError, ApiResult};

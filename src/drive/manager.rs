@@ -3,6 +3,7 @@ use super::mounts::{DriveConfig, Mount};
 use crate::drive::utils::view_online_url;
 use crate::inventory::InventoryDb;
 use anyhow::{Context, Result};
+use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -10,7 +11,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::spawn;
 use tokio::sync::{Mutex, RwLock, mpsc};
-use rust_i18n::t;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DriveState {
@@ -55,6 +55,10 @@ impl DriveManager {
             command_rx: Arc::new(Mutex::new(Some(command_rx))),
             processor_handle: Arc::new(Mutex::new(None)),
         })
+    }
+
+    pub fn get_inventory(&self) -> Arc<InventoryDb> {
+        self.inventory.clone()
     }
 
     /// Get the .cloudreve config directory path

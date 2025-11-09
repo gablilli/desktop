@@ -8,3 +8,6 @@ shared:
 accessible:
   en-US: "Accessible"
   zh-CN: "访问权限"
+noAccess:
+  en-US: "No Access"
+  zh-CN: "无访问权限"

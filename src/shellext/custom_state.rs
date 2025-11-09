@@ -1,5 +1,8 @@
 use crate::drive::manager::DriveManager;
+use crate::inventory::InventoryDb;
 use crate::utils::app::{AppRoot, get_app_root};
+use cloudreve_api::Boolset;
+use cloudreve_api::models::explorer::file_permission;
 use std::sync::Arc;
 use windows::{
     Foundation::Collections::*,
@@ -15,14 +18,17 @@ pub const CLSID_CUSTOM_STATE_HANDLER: GUID =
 #[implement(IStorageProviderItemPropertySource)]
 pub struct CustomStateHandler {
     drive_manager: Arc<DriveManager>,
+    inventory: Arc<InventoryDb>,
     app_root: AppRoot,
 }
 
 impl CustomStateHandler {
     pub fn new(drive_manager: Arc<DriveManager>) -> Self {
+        let inventory = drive_manager.get_inventory();
         Self {
             drive_manager,
             app_root: get_app_root(),
+            inventory,
         }
     }
 }
@@ -33,18 +39,42 @@ impl IStorageProviderItemPropertySource_Impl for CustomStateHandler_Impl {
         itempath: &HSTRING,
     ) -> Result<IIterable<StorageProviderItemProperty>> {
         tracing::info!(target: "shellext::custom_state", "Getting item properties for {}", itempath);
+
+        let file_metadata = self
+            .inventory
+            .query_by_path(itempath.to_string().as_str())
+            .map_err(|e| {
+                tracing::error!(target: "shellext::custom_state", "Failed to query inventory for path {}: {:?}", itempath, e);
+                Error::from(E_FAIL)
+            })?
+            .ok_or_else(|| {
+                tracing::error!(target: "shellext::custom_state", "No metadata found for path {}", itempath);
+                Error::from(E_FAIL)
+            })?;
+
         let image_path = self.app_root.image_path();
         let mut vec = Vec::new();
-        let properties = StorageProviderItemProperty::new()?;
-        properties.SetId(1)?;
-        properties.SetIconResource(&HSTRING::from(format!("{}\\people.ico,0", image_path)))?;
-        properties.SetValue(&HSTRING::from("Shared"))?;
-        vec.push(Some(properties));
-        let properties = StorageProviderItemProperty::new()?;
-        properties.SetId(2)?;
-        properties.SetIconResource(&HSTRING::from(format!("{}\\ lock.ico,0", image_path)))?;
-        properties.SetValue(&HSTRING::from("Accessible"))?;
-        vec.push(Some(properties));
+
+        if file_metadata.shared {
+            let properties = StorageProviderItemProperty::new()?;
+            properties.SetId(1)?;
+            properties.SetIconResource(&HSTRING::from(format!("{}\\people.ico,0", image_path)))?;
+            properties.SetValue(&HSTRING::from(t!("shared").as_ref()))?;
+            vec.push(Some(properties));
+        }
+
+        let permission = Boolset::from_base64(&file_metadata.permissions).map_err(|e| {
+            tracing::error!(target: "shellext::custom_state", "Failed to parse permission for path {}: {:?}", itempath, e);
+            Error::from(E_FAIL)
+        })?;
+        if !permission.enabled(file_permission::READ as usize) {
+            let properties = StorageProviderItemProperty::new()?;
+            properties.SetId(2)?;
+            properties.SetIconResource(&HSTRING::from(format!("{}\\lock.ico,0", image_path)))?;
+            properties.SetValue(&HSTRING::from(t!("noAccess").as_ref()))?;
+            vec.push(Some(properties));
+        }
+
         IIterable::<StorageProviderItemProperty>::try_from(vec)
     }
 }
