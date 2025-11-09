@@ -5,12 +5,10 @@ static APP_ROOT: OnceLock<Arc<String>> = OnceLock::new();
 
 pub fn init_app_root() {
     let path = ApplicationModel::Package::Current()
-        .unwrap()
-        .InstalledLocation()
-        .unwrap()
-        .Path()
-        .unwrap()
-        .to_string();
+        .and_then(|p| p.InstalledLocation())
+        .and_then(|l| l.Path())
+        .map(|p| p.to_string())
+        .unwrap_or_else(|_| String::new());
 
     APP_ROOT.set(Arc::new(path)).ok();
 }

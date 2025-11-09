@@ -36,8 +36,13 @@ impl IStorageProviderItemPropertySource_Impl for CustomStateHandler_Impl {
         let mut vec = Vec::new();
         let properties = StorageProviderItemProperty::new()?;
         properties.SetId(1)?;
-        properties.SetIconResource(&HSTRING::from("shell32.dll,-14"))?;
+        properties.SetIconResource(&HSTRING::from("C:\\Users\\aaronliu\\.cloudreve\\icos\\people3.ico,0"))?;
         properties.SetValue(&HSTRING::from("Shared"))?;
+        vec.push(Some(properties));
+        let properties = StorageProviderItemProperty::new()?;
+        properties.SetId(2)?;
+        properties.SetIconResource(&HSTRING::from("C:\\Users\\aaronliu\\.cloudreve\\icos\\lock3.ico,0"))?;
+        properties.SetValue(&HSTRING::from("Accessible"))?;
         vec.push(Some(properties));
         IIterable::<StorageProviderItemProperty>::try_from(vec)
     }

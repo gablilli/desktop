@@ -90,7 +90,7 @@ impl InventoryDb {
                 r#"
                 INSERT INTO file_metadata 
                 (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
                 "#,
                 params![
                     entry.drive_id.to_string(),

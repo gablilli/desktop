@@ -59,8 +59,11 @@
         </desktop3:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-            <com:ExeServer DisplayName="Cloud Mirror Command Handler" Executable="cloudreve-sync.exe">
+            <com:ExeServer DisplayName="Cloudreve Command Handler" Executable="cloudreve-sync.exe">
               <com:Class Id="165cd069-d9c8-42b4-8e37-b6971afa4494" />
+            </com:ExeServer>
+            <com:ExeServer DisplayName="Cloudreve Custom State Handler" Executable="cloudreve-sync.exe">
+              <com:Class Id="f0c9de6c-6c76-44d7-a58e-579cdf7af263" />
             </com:ExeServer>
           </com:ComServer>
         </com:Extension>
