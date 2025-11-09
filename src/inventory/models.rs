@@ -15,6 +15,8 @@ pub struct FileMetadata {
     pub etag: String,
     pub metadata: HashMap<String, String>,
     pub props: Option<serde_json::Value>,
+    pub permissions: String,
+    pub shared: bool,
 }
 
 /// Entry for inserting or updating file metadata
@@ -27,6 +29,8 @@ pub struct MetadataEntry {
     pub local_path: String,
     pub remote_uri: String,
     pub etag: String,
+    pub permissions: String,
+    pub shared: bool,
     pub metadata: HashMap<String, String>,
     pub props: Option<serde_json::Value>,
 }
@@ -48,7 +52,19 @@ impl MetadataEntry {
             etag: String::new(),
             metadata: HashMap::new(),
             props: None,
+            permissions: String::new(),
+            shared: false,
         }
+    }
+
+    pub fn with_permissions(mut self, permissions: impl Into<String>) -> Self {
+        self.permissions = permissions.into();
+        self
+    }
+
+    pub fn with_shared(mut self, shared: bool) -> Self {
+        self.shared = shared;
+        self
     }
 
     pub fn with_created_at(mut self, created_at: i64) -> Self {

@@ -75,6 +75,8 @@ pub fn cloud_file_to_metadata_entry(
     )
     .with_created_at(created_at)
     .with_updated_at(last_modified)
+    .with_permissions(file.permission.as_ref().unwrap_or(&String::new()).clone())
+    .with_shared(file.shared.unwrap_or(false))
     .with_etag(
         file.primary_entity
             .as_ref()

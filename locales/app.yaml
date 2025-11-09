@@ -2,3 +2,9 @@ _version: 2
 viewOnline:
   en-US: "View Online"
   zh-CN: "在线查看"
+shared:
+  en-US: "Shared"
+  zh-CN: "已共享"
+accessible:
+  en-US: "Accessible"
+  zh-CN: "访问权限"

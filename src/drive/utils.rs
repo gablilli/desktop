@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use cloudreve_api::models::uri::CrUri;
 use url::Url;
 
-use crate::drive::mounts::DriveConfig;
+use crate::{drive::mounts::DriveConfig, inventory::FileMetadata};
 
 pub fn local_path_to_cr_uri(path: PathBuf, root: PathBuf, remote_base: String) -> Result<CrUri> {
     let mut base = CrUri::new(&remote_base)?;

@@ -5,21 +5,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use windows::{
-    Win32::{
-        Foundation::*,
-        System::{Com::*, Threading::CreateEventW},
-        UI::Shell::*,
-    },
+    Win32::{Foundation::*, System::Com::*, UI::Shell::*},
     core::*,
 };
 
 use crate::drive::commands::ManagerCommand;
 use crate::drive::manager::DriveManager;
-use windows::ApplicationModel;
 use rust_i18n::t;
+use windows::ApplicationModel;
 
 // UUID for our context menu handler - matches the C++ implementation
-const CLSID_TEST_EXPLORER_COMMAND: GUID = GUID::from_u128(0x165cd069_d9c8_42b4_8e37_b6971afa4494);
+pub const CLSID_TEST_EXPLORER_COMMAND: GUID =
+    GUID::from_u128(0x165cd069_d9c8_42b4_8e37_b6971afa4494);
 
 #[implement(IExplorerCommand)]
 pub struct TestExplorerCommandHandler {
@@ -160,88 +157,5 @@ impl IClassFactory_Impl for TestExplorerCommandFactory_Impl {
 
     fn LockServer(&self, _lock: BOOL) -> Result<()> {
         Ok(())
-    }
-}
-
-// Shell services - registers COM objects for Windows Shell integration
-pub struct ShellServices {
-    cookies: Vec<u32>,
-    drive_manager: Arc<DriveManager>,
-}
-
-impl ShellServices {
-    pub fn new(drive_manager: Arc<DriveManager>) -> Self {
-        Self {
-            cookies: Vec::new(),
-            drive_manager,
-        }
-    }
-
-    pub fn init_and_start(&mut self) -> Result<()> {
-        tracing::info!(target: "shellext::context_menu", "Initializing Shell Services (Context Menu Handler)...");
-
-        unsafe {
-            // Initialize COM for this thread
-            CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
-            // Create and register the class factory
-            let factory: IClassFactory =
-                TestExplorerCommandFactory::new(self.drive_manager.clone()).into();
-
-            let cookie = CoRegisterClassObject(
-                &CLSID_TEST_EXPLORER_COMMAND,
-                &factory,
-                CLSCTX_LOCAL_SERVER,
-                REGCLS_MULTIPLEUSE,
-            )?;
-
-            self.cookies.push(cookie);
-            tracing::info!(target: "shellext::context_menu", "Context Menu Handler registered with cookie: {}", cookie);
-            println!(
-                "CLSID: {{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
-                CLSID_TEST_EXPLORER_COMMAND.data1,
-                CLSID_TEST_EXPLORER_COMMAND.data2,
-                CLSID_TEST_EXPLORER_COMMAND.data3,
-                CLSID_TEST_EXPLORER_COMMAND.data4[0],
-                CLSID_TEST_EXPLORER_COMMAND.data4[1],
-                CLSID_TEST_EXPLORER_COMMAND.data4[2],
-                CLSID_TEST_EXPLORER_COMMAND.data4[3],
-                CLSID_TEST_EXPLORER_COMMAND.data4[4],
-                CLSID_TEST_EXPLORER_COMMAND.data4[5],
-                CLSID_TEST_EXPLORER_COMMAND.data4[6],
-                CLSID_TEST_EXPLORER_COMMAND.data4[7],
-            );
-        }
-
-        Ok(())
-    }
-
-    pub fn run_message_loop(&self) -> Result<()> {
-        tracing::info!(target: "shellext::context_menu", "Context Menu Handler is running. Press Ctrl+C to exit...");
-
-        // Keep the thread alive to handle COM requests
-        // In the C++ version, they use CoWaitForMultipleHandles
-        // We'll use a simple approach - create a dummy event handle
-        unsafe {
-            // Use INVALID_HANDLE_VALUE as a dummy handle for CoWaitForMultipleHandles
-            // This keeps the COM message pump running
-            let dymmyevent = CreateEventW(None, FALSE, FALSE, None)?;
-            let index =
-                CoWaitForMultipleHandles((COWAIT_DISPATCH_CALLS).0 as u32, u32::MAX, &[dymmyevent]);
-            tracing::info!(target: "shellext::context_menu", "CoWaitForMultipleHandles index: {:?}", index);
-        }
-
-        Ok(())
-    }
-}
-
-impl Drop for ShellServices {
-    fn drop(&mut self) {
-        tracing::info!(target: "shellext::context_menu", "Unregistering Shell Services...");
-        unsafe {
-            for cookie in &self.cookies {
-                let _ = CoRevokeClassObject(*cookie);
-            }
-            CoUninitialize();
-        }
     }
 }

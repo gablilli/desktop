@@ -161,6 +161,8 @@ impl Mount {
             sync_root_info
                 .set_path(Path::new(&config.sync_path))
                 .context("failed to set sync root path")?;
+            sync_root_info.add_custom_state(t!("shared").as_ref(), 1)?;
+            sync_root_info.add_custom_state(t!("accessible").as_ref(), 2)?;
             sync_root_id
                 .register(sync_root_info)
                 .context("failed to register sync root")?;

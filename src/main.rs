@@ -6,7 +6,9 @@ mod inventory;
 mod logging;
 mod shellext;
 mod tasks;
+mod utils;
 
+use crate::utils::app::init_app_root;
 use anyhow::{Context, Result};
 use api::{AppState, create_router};
 use drive::manager::DriveManager;
@@ -32,6 +34,7 @@ i18n!("locales");
 #[tokio::main]
 async fn main() -> Result<()> {
     init_i18n();
+    init_app_root();
     // Initialize logging system with file rotation and component-specific targets
     // Keep the guard alive for the entire application lifetime
     let _log_guard = logging::init_logging(LogConfig::default())

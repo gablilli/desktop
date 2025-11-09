@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS file_metadata (
     etag TEXT NOT NULL,
     metadata TEXT NOT NULL,
     props TEXT,
+    permissions TEXT,
+    shared BOOLEAN NOT NULL,
     UNIQUE(local_path)
 );
 
@@ -87,7 +89,7 @@ impl InventoryDb {
             tx.execute(
                 r#"
                 INSERT INTO file_metadata 
-                (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
+                (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared)
                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
                 "#,
                 params![
@@ -100,6 +102,8 @@ impl InventoryDb {
                     entry.etag,
                     metadata_json,
                     props_json,
+                    entry.permissions,
+                    entry.shared,
                 ],
             )?;
         }
@@ -132,7 +136,7 @@ impl InventoryDb {
         conn.execute(
             r#"
             INSERT INTO file_metadata 
-            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
+            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared)
             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
@@ -145,6 +149,8 @@ impl InventoryDb {
                 entry.etag,
                 metadata_json,
                 props_json,
+                entry.permissions,
+                entry.shared,
             ],
         )?;
 
@@ -172,8 +178,10 @@ impl InventoryDb {
                 updated_at = ?4, 
                 etag = ?5, 
                 metadata = ?6, 
-                props = ?7
-            WHERE local_path = ?8
+                props = ?7,
+                permissions = ?8,
+                shared = ?9
+            WHERE local_path = ?10
             "#,
             params![
                 entry.drive_id.to_string(),
@@ -183,6 +191,8 @@ impl InventoryDb {
                 entry.etag,
                 metadata_json,
                 props_json,
+                entry.permissions,
+                entry.shared,
                 entry.local_path,
             ],
         )?;
@@ -205,8 +215,8 @@ impl InventoryDb {
         conn.execute(
             r#"
             INSERT INTO file_metadata 
-            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             ON CONFLICT(local_path) DO UPDATE SET
                 drive_id = excluded.drive_id,
                 is_folder = excluded.is_folder,
@@ -214,7 +224,9 @@ impl InventoryDb {
                 updated_at = excluded.updated_at,
                 etag = excluded.etag,
                 metadata = excluded.metadata,
-                props = excluded.props
+                props = excluded.props,
+                permissions = excluded.permissions,
+                shared = excluded.shared
             "#,
             params![
                 entry.drive_id.to_string(),
@@ -226,6 +238,8 @@ impl InventoryDb {
                 entry.etag,
                 metadata_json,
                 props_json,
+                entry.permissions,
+                entry.shared,
             ],
         )?;
 
@@ -239,7 +253,7 @@ impl InventoryDb {
         let result = conn
             .query_row(
                 r#"
-                SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props
+                SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared
                 FROM file_metadata
                 WHERE local_path = ?1
                 "#,
@@ -282,6 +296,8 @@ impl InventoryDb {
                                     Box::new(e),
                                 )
                             })?,
+                        permissions: row.get(10)?,
+                        shared: row.get(11)?,
                     })
                 },
             )
@@ -295,7 +311,7 @@ impl InventoryDb {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             r#"
-            SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props
+            SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared
             FROM file_metadata
             WHERE drive_id = ?1
             ORDER BY local_path
@@ -340,6 +356,8 @@ impl InventoryDb {
                             Box::new(e),
                         )
                     })?,
+                permissions: row.get(10)?,
+                shared: row.get(11)?,
             })
         })?;
 

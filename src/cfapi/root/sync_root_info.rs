@@ -4,24 +4,24 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use flagset::{flags, FlagSet};
+use crate::cfapi::utility::ToHString;
+use anyhow::Result;
+use flagset::{FlagSet, flags};
 use widestring::U16String;
 use windows::{
-    core::Result,
     Foundation::Uri,
     Storage::{
         Provider::{
             StorageProviderHardlinkPolicy, StorageProviderHydrationPolicy,
             StorageProviderHydrationPolicyModifier, StorageProviderInSyncPolicy,
-            StorageProviderPopulationPolicy, StorageProviderProtectionMode,
-            StorageProviderSyncRootInfo,
+            StorageProviderItemPropertyDefinition, StorageProviderPopulationPolicy,
+            StorageProviderProtectionMode, StorageProviderSyncRootInfo,
         },
         StorageFolder,
         Streams::{DataReader, DataWriter},
     },
+    core,
 };
-
-use crate::cfapi::utility::ToHString;
 
 use super::SyncRootId;
 
@@ -79,6 +79,17 @@ impl SyncRootInfo {
             .unwrap()
     }
 
+    pub fn add_custom_state(&mut self, display_name: impl AsRef<OsStr>, id: i32) -> Result<()> {
+        let property_definition = StorageProviderItemPropertyDefinition::new()?;
+        property_definition.SetId(id)?;
+        property_definition
+            .SetDisplayNameResource(&U16String::from_os_str(&display_name).to_hstring())?;
+        self.0
+            .StorageProviderItemPropertyDefinitions()?
+            .Append(&property_definition)?;
+        Ok(())
+    }
+
     /// Sets the display name that maps to the existing sync root registration.
     pub fn with_display_name(mut self, display_name: impl AsRef<OsStr>) -> Self {
         self.set_display_name(display_name);
@@ -96,7 +107,7 @@ impl SyncRootInfo {
     /// Sets the Uri to a cloud storage recycle bin.
     ///
     /// Returns an error if the Uri is not valid.
-    pub fn set_recycle_bin_uri(&mut self, recycle_bin_uri: impl AsRef<OsStr>) -> Result<()> {
+    pub fn set_recycle_bin_uri(&mut self, recycle_bin_uri: impl AsRef<OsStr>) -> core::Result<()> {
         self.0
             .SetRecycleBinUri(&Uri::CreateUri(
                 &U16String::from_os_str(&recycle_bin_uri).to_hstring(),
@@ -109,7 +120,10 @@ impl SyncRootInfo {
     /// Sets the Uri to a cloud storage recycle bin.
     ///
     /// Returns an error if the Uri is not valid.
-    pub fn with_recycle_bin_uri(mut self, recycle_bin_uri: impl AsRef<OsStr>) -> Result<Self> {
+    pub fn with_recycle_bin_uri(
+        mut self,
+        recycle_bin_uri: impl AsRef<OsStr>,
+    ) -> core::Result<Self> {
         self.set_recycle_bin_uri(recycle_bin_uri)?;
         Ok(self)
     }
@@ -143,7 +157,7 @@ impl SyncRootInfo {
     /// Sets the path of the sync root.
     ///
     /// Returns an error if the path is not a folder.
-    pub fn set_path(&mut self, path: impl AsRef<Path>) -> Result<()> {
+    pub fn set_path(&mut self, path: impl AsRef<Path>) -> core::Result<()> {
         self.0
             .SetPath(
                 &StorageFolder::GetFolderFromPathAsync(
@@ -159,7 +173,7 @@ impl SyncRootInfo {
     /// Sets the path of the sync root.
     ///
     /// Returns an error if the path is not a folder.
-    pub fn with_path(mut self, path: impl AsRef<Path>) -> Result<Self> {
+    pub fn with_path(mut self, path: impl AsRef<Path>) -> core::Result<Self> {
         self.set_path(path)?;
         Ok(self)
     }
