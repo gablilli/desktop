@@ -33,15 +33,16 @@ impl IStorageProviderItemPropertySource_Impl for CustomStateHandler_Impl {
         itempath: &HSTRING,
     ) -> Result<IIterable<StorageProviderItemProperty>> {
         tracing::info!(target: "shellext::custom_state", "Getting item properties for {}", itempath);
+        let image_path = self.app_root.image_path();
         let mut vec = Vec::new();
         let properties = StorageProviderItemProperty::new()?;
         properties.SetId(1)?;
-        properties.SetIconResource(&HSTRING::from("C:\\Users\\aaronliu\\.cloudreve\\icos\\people3.ico,0"))?;
+        properties.SetIconResource(&HSTRING::from(format!("{}\\people.ico,0", image_path)))?;
         properties.SetValue(&HSTRING::from("Shared"))?;
         vec.push(Some(properties));
         let properties = StorageProviderItemProperty::new()?;
         properties.SetId(2)?;
-        properties.SetIconResource(&HSTRING::from("C:\\Users\\aaronliu\\.cloudreve\\icos\\lock3.ico,0"))?;
+        properties.SetIconResource(&HSTRING::from(format!("{}\\ lock.ico,0", image_path)))?;
         properties.SetValue(&HSTRING::from("Accessible"))?;
         vec.push(Some(properties));
         IIterable::<StorageProviderItemProperty>::try_from(vec)

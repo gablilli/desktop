@@ -20,6 +20,10 @@ pub struct AppRoot(Arc<String>);
 
 impl AppRoot {
     pub fn image_path(&self) -> String {
-        format!("{}\\Images", self.0.as_str())
+        match dark_light::detect().unwrap_or(dark_light::Mode::Light) {
+            dark_light::Mode::Dark => format!("{}\\Images\\darkTheme", self.0.as_str()),
+            dark_light::Mode::Light => format!("{}\\Images\\lightTheme", self.0.as_str()),
+            dark_light::Mode::Unspecified => format!("{}\\Images\\lightTheme", self.0.as_str()),
+        }
     }
 }

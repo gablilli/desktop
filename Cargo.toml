@@ -32,6 +32,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 open = "5.3.2"
 rust-i18n = "3"
 sys-locale="0"
+dark-light = "2.0.0"
 
 [dependencies.windows]
 version = "0.58.0"
