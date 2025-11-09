@@ -12,13 +12,24 @@ use api::{AppState, create_router};
 use drive::manager::DriveManager;
 use events::EventBroadcaster;
 use logging::LogConfig;
+use rust_i18n::set_locale;
 use std::sync::Arc;
+use sys_locale::get_locale;
 use tasks::{TaskManager, TaskManagerConfig};
 use tokio::signal;
 use tower_http::trace::TraceLayer;
 
+#[macro_use]
+extern crate rust_i18n;
+
+fn init_i18n() {
+    let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
+    set_locale(locale.as_str());
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    init_i18n();
     // Initialize logging system with file rotation and component-specific targets
     // Keep the guard alive for the entire application lifetime
     let _log_guard = logging::init_logging(LogConfig::default())
