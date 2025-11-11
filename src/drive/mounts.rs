@@ -160,7 +160,7 @@ impl Mount {
             tracing::info!(target: "drive::mounts", id = %self.id, "Registering sync root");
             let mut sync_root_info = SyncRootInfo::default();
             sync_root_info.set_display_name(config.name.clone());
-            sync_root_info.set_hydration_type(HydrationType::Progressive);
+            sync_root_info.set_hydration_type(HydrationType::Full);
             sync_root_info.set_population_type(PopulationType::Full);
             if let Some(icon_path) = config.icon_path.as_ref() {
                 sync_root_info.set_icon(format!("{},0", icon_path));

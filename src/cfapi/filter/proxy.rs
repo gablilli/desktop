@@ -94,7 +94,9 @@ pub unsafe extern "system" fn fetch_data<T: SyncFilter + 'static>(
             return;
         };
 
-        command::Write::fail(connection_key, transfer_key, e).unwrap();
+        if let Err(e) = command::Write::fail(connection_key, transfer_key, e) {
+            tracing::error!(target: "cfapi::filter::proxy", "Failed to write data: {:?}", e);
+        }
     }
 }
 
@@ -116,7 +118,9 @@ pub unsafe extern "system" fn validate_data<T: SyncFilter + 'static>(
             return;
         };
 
-        command::Validate::fail(connection_key, transfer_key, e).unwrap();
+        if let Err(e) = command::Validate::fail(connection_key, transfer_key, e) {
+            tracing::error!(target: "cfapi::filter::proxy", "Failed to validate data: {:?}", e);
+        }
     }
 }
 
@@ -150,7 +154,9 @@ pub unsafe extern "system" fn fetch_placeholders<T: SyncFilter + 'static>(
             return;
         };
 
-        command::CreatePlaceholders::fail(connection_key, transfer_key, e).unwrap();
+        if let Err(e) = command::CreatePlaceholders::fail(connection_key, transfer_key, e) {
+            tracing::error!(target: "cfapi::filter::proxy", "Failed to create placeholders: {:?}", e);
+        }
     }
 }
 

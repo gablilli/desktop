@@ -116,9 +116,11 @@ impl Mount {
             let chunk = chunk_result.context("failed to read chunk from stream")?;
             accumulator.extend_from_slice(&chunk);
 
-            // Write out 4KB-aligned chunks while we have enough data
-            while accumulator.len() >= CHUNK_SIZE {
-                let write_data = accumulator.drain(..CHUNK_SIZE).collect::<Vec<u8>>();
+            // Write out all aligned chunks at once if we have enough data
+            if accumulator.len() >= CHUNK_SIZE {
+                // Calculate how many complete aligned chunks we can write
+                let aligned_size = (accumulator.len() / CHUNK_SIZE) * CHUNK_SIZE;
+                let write_data = accumulator.drain(..aligned_size).collect::<Vec<u8>>();
 
                 ticket.write_at(&write_data, current_offset).map_err(|e| {
                     anyhow::anyhow!("failed to write data at offset {}: {:?}", current_offset, e)
