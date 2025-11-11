@@ -85,3 +85,7 @@ pub fn cloud_file_to_metadata_entry(
     )
     .with_metadata(file.metadata.as_ref().unwrap_or(&HashMap::new()).clone()))
 }
+
+pub fn is_symbolic_link(file: &FileResponse) -> bool {
+    return file.metadata.is_some() && file.metadata.as_ref().unwrap().get("sys:symlink").is_some();
+}

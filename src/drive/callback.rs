@@ -9,7 +9,7 @@ use crate::{
     drive::{
         commands::MountCommand,
         mounts::DriveConfig,
-        sync::{cloud_file_to_metadata_entry, cloud_file_to_placeholder},
+        sync::{cloud_file_to_metadata_entry, cloud_file_to_placeholder, is_symbolic_link},
     },
     inventory::{InventoryDb, MetadataEntry},
 };
@@ -107,6 +107,7 @@ impl SyncFilter for CallbackHandler {
             Ok(Ok(files)) => {
                 tracing::debug!(target: "drive::mounts", id = %self.id, files = %files.files.len(), "Received placeholders");
                 let mut placeholders = files.files.iter()
+                    .filter(|file| !is_symbolic_link(file))
                     .map(|file| cloud_file_to_placeholder(file, &files.local_path, &files.remote_path))
                     .filter_map(|result|{
                         if result.is_ok() {
