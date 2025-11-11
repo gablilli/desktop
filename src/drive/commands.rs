@@ -232,11 +232,12 @@ impl Mount {
 
         let thumb_res = self
             .cr_client
-            .get_file_thumb(path.to_str().unwrap_or(""), None)
+            .get_file_thumb(file_meta.remote_uri.as_str(), None)
             .await?;
 
         // Download the thumbnail
         let thumb_url = thumb_res.url;
+        tracing::trace!(target: "drive::commands", thumb_url = %thumb_url, "Thumbnail URL");
         let thumb_response = reqwest::get(thumb_url).await?;
         // Make sure the response is successful
         if !thumb_response.status().is_success() {

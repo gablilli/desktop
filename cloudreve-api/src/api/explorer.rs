@@ -5,6 +5,112 @@ use crate::models::explorer::*;
 use async_trait::async_trait;
 use bytes::Bytes;
 
+/// Decode time flow string (for obfuscated thumbnail URLs)
+fn decode_time_flow_string(str: &str, time_now: i64) -> ApiResult<String> {
+    // Try with current time
+    if let Ok(result) = decode_time_flow_string_time(str, time_now) {
+        return Ok(result);
+    }
+    
+    // Try with time - 1000
+    if let Ok(result) = decode_time_flow_string_time(str, time_now - 1000) {
+        return Ok(result);
+    }
+    
+    // Try with time + 1000
+    if let Ok(result) = decode_time_flow_string_time(str, time_now + 1000) {
+        return Ok(result);
+    }
+    
+    Err(crate::error::ApiError::Other("Failed to decode time flow string".to_string()))
+}
+
+/// Decode time flow string time (for obfuscated thumbnail URLs)
+fn decode_time_flow_string_time(str: &str, time_now: i64) -> ApiResult<String> {
+    let mut time_now = time_now / 1000;
+    let time_now_backup = time_now;
+    
+    // Extract time digits
+    let mut time_digits: Vec<i64> = Vec::new();
+    
+    if str.is_empty() {
+        return Ok(String::new());
+    }
+    
+    while time_now > 0 {
+        time_digits.push(time_now % 10);
+        time_now /= 10;
+    }
+    
+    if time_digits.is_empty() {
+        return Err(crate::error::ApiError::Other("Invalid time value".to_string()));
+    }
+    
+    // Convert string to character array
+    let chars: Vec<char> = str.chars().collect();
+    let mut res: Vec<char> = chars.clone();
+    let mut secret: Vec<char> = chars.clone();
+    
+    let mut add = secret.len() % 2 == 0;
+    let mut time_digit_index = ((secret.len() - 1) % time_digits.len()) as i64;
+    let l = secret.len();
+    
+    for pos in 0..l {
+        let res_index = l - 1 - pos;
+        let mut new_index = res_index as i64;
+        
+        if add {
+            new_index = new_index + time_digits[time_digit_index as usize] * time_digit_index;
+        } else {
+            new_index = 2 * time_digit_index * time_digits[time_digit_index as usize] - new_index;
+        }
+        
+        if new_index < 0 {
+            new_index = new_index * -1;
+        }
+        
+        new_index = new_index % secret.len() as i64;
+        let new_index_usize = new_index as usize;
+        
+        res[res_index] = secret[new_index_usize];
+        
+        // Swap elements in secret
+        let a = secret[res_index];
+        let b = secret[new_index_usize];
+        secret[new_index_usize] = a;
+        secret[res_index] = b;
+        
+        // Remove last element from secret
+        secret.pop();
+        
+        add = !add;
+        
+        // Decrement timeDigitIndex
+        time_digit_index -= 1;
+        if time_digit_index < 0 {
+            time_digit_index = time_digits.len() as i64 - 1;
+        }
+    }
+    
+    // Convert result back to string
+    let res_str: String = res.iter().collect();
+    
+    // Validate the result
+    let res_sep: Vec<&str> = res_str.split('|').collect();
+    
+    if res_sep.is_empty() || res_sep[0] != time_now_backup.to_string() {
+        return Err(crate::error::ApiError::Other("Invalid time flow string".to_string()));
+    }
+    
+    // Return the part after the first "|"
+    let prefix_len = res_sep[0].len() + 1; // +1 for the "|"
+    if prefix_len <= res_str.len() {
+        Ok(res_str[prefix_len..].to_string())
+    } else {
+        Ok(String::new())
+    }
+}
+
 /// File explorer API methods
 #[async_trait]
 pub trait ExplorerApi {
@@ -215,11 +321,24 @@ impl ExplorerApi for Client {
         let query = format!("?uri={}", urlencoding::encode(path));
 
         // TODO: Add context hint header support if needed
-        self.get(
-            &format!("/file/thumb{}", query),
-            RequestOptions::new().with_purchase_ticket(),
-        )
-        .await
+        let mut response: FileThumbResponse = self
+            .get(
+                &format!("/file/thumb{}", query),
+                RequestOptions::new().with_purchase_ticket(),
+            )
+            .await?;
+
+        if response.obfuscated {
+            // Decode the obfuscated URL
+            let time_now_sec = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| crate::error::ApiError::Other(format!("System time error: {}", e)))?
+                .as_secs() as i64;
+
+            response.url = decode_time_flow_string(&response.url, time_now_sec)?;
+        }
+
+        Ok(response)
     }
 
     async fn get_file_info(&self, params: &GetFileInfoService) -> ApiResult<FileResponse> {

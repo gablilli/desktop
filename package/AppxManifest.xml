@@ -68,6 +68,9 @@
             <com:ExeServer DisplayName="Cloudreve Status UI Source Factory" Executable="cloudreve-sync.exe">
               <com:Class Id="b1d8ef74-822d-401a-a14a-25f45b1f70b7" />
             </com:ExeServer>
+            <com:ExeServer DisplayName="Cloudreve Thumbnail Handler" Executable="cloudreve-sync.exe">
+              <com:Class Id="3d781652-78c5-4038-87a4-ec5940ab560a" />
+            </com:ExeServer>
           </com:ComServer>
         </com:Extension>
       </Extensions>
