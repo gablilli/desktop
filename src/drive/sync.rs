@@ -6,7 +6,7 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use cloudreve_api::models::{
-    explorer::{FileResponse, file_type},
+    explorer::{FileResponse, file_type, metadata},
     uri::CrUri,
 };
 use nt_time::FileTime;
@@ -87,5 +87,5 @@ pub fn cloud_file_to_metadata_entry(
 }
 
 pub fn is_symbolic_link(file: &FileResponse) -> bool {
-    return file.metadata.is_some() && file.metadata.as_ref().unwrap().get("sys:symlink").is_some();
+    return file.metadata.is_some() && file.metadata.as_ref().unwrap().get(metadata::SHARE_REDIRECT).is_some();
 }
