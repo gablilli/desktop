@@ -324,6 +324,28 @@ impl DriveManager {
                         tracing::error!(target: "drive::manager", error = %e, "Failed to persist config");
                     }
                 }
+                ManagerCommand::GenerateThumbnail { path, response } => {
+                    let path = path.clone();
+                    spawn(async move {
+                        let drive = manager
+                            .search_drive_by_child_path(path.to_str().unwrap_or(""))
+                            .await;
+                        if let Some(drive) = drive {
+                            let result = drive.generate_thumbnail(path.clone()).await;
+                            if let Err(e) = result {
+                                tracing::error!(target: "drive::manager", error = %e, "Failed to generate thumbnail");
+                                let _ = response.send(Err(e));
+                                return;
+                            }
+
+                            let _ = response.send(result);
+                            return;
+                        }
+
+                        let _ = response
+                            .send(Err(anyhow::anyhow!("No drive found for path: {:?}", path)));
+                    });
+                }
             }
         }
 

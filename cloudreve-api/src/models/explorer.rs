@@ -485,6 +485,7 @@ pub mod metadata {
     pub const EMOJI: &str = "customize:emoji";
     pub const LIVE_PHOTO: &str = "customize:live_photo";
     pub const TAG_PREFIX: &str = "tag:";
+    pub const THUMBNAIL_DISABLED: &str = "thumb:disabled";
 }
 
 /// File permission constants

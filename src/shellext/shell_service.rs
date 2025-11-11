@@ -4,6 +4,7 @@ use crate::shellext::custom_state::{CLSID_CUSTOM_STATE_HANDLER, CustomStateHandl
 use crate::shellext::status_ui::{
     CLSID_STATUS_UI_HANDLER, StatusUIHandlerFactory, StatusUIHandlerFactoryFactory,
 };
+use crate::shellext::thumbnail::{CLSID_THUMBNAIL_PROVIDER, ThumbnailProviderFactory};
 use rust_i18n::t;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -41,6 +42,12 @@ pub fn init_and_start_service_task(drive_manager: Arc<DriveManager>) -> ServiceH
 
         if let Err(e) = services.init_and_start_status_ui_handler() {
             tracing::error!(target: "shellext::shell_service", "Failed to initialize status ui handler: {:?}", e);
+            let _ = tx.send(Err(e));
+            return;
+        }
+
+        if let Err(e) = services.init_and_start_thumbnail_provider_handler() {
+            tracing::error!(target: "shellext::shell_service", "Failed to initialize thumbnail provider handler: {:?}", e);
             let _ = tx.send(Err(e));
             return;
         }
@@ -97,6 +104,26 @@ impl ShellServices {
         unsafe {
             CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
         }
+        Ok(())
+    }
+
+    pub fn init_and_start_thumbnail_provider_handler(&mut self) -> Result<()> {
+        tracing::info!(target: "shellext::thumbnail", "Initializing Shell Services (Thumbnail Provider Handler)...");
+
+        unsafe {
+            let factory: IClassFactory =
+                ThumbnailProviderFactory::new(self.drive_manager.clone()).into();
+            let cookie = CoRegisterClassObject(
+                &CLSID_THUMBNAIL_PROVIDER,
+                &factory,
+                CLSCTX_LOCAL_SERVER,
+                REGCLS_MULTIPLEUSE,
+            )?;
+
+            self.cookies.push(cookie);
+            tracing::info!(target: "shellext::thumbnail", "Thumbnail Provider Handler registered with cookie: {}", cookie);
+        }
+
         Ok(())
     }
 

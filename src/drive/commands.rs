@@ -1,12 +1,14 @@
 use crate::{
     cfapi::{filter::ticket, utility::WriteAt},
     drive::{interop::GetPlacehodlerResult, mounts::Mount, utils::local_path_to_cr_uri},
+    inventory,
 };
 use anyhow::{Context, Result};
+use bytes::Bytes;
 use cloudreve_api::{
     api::{ExplorerApi, explorer::ExplorerApiExt},
     models::{
-        explorer::{FileResponse, FileURLService},
+        explorer::{FileResponse, FileURLService, metadata},
         user::Token,
     },
 };
@@ -51,6 +53,10 @@ pub enum ManagerCommand {
         path: PathBuf,
     },
     PersistConfig,
+    GenerateThumbnail {
+        path: PathBuf,
+        response: Sender<Result<Bytes>>,
+    },
 }
 
 impl Mount {
@@ -207,5 +213,38 @@ impl Mount {
             local_path: path.clone(),
             remote_path: uri.clone(),
         })
+    }
+
+    pub async fn generate_thumbnail(&self, path: PathBuf) -> Result<Bytes> {
+        let file_meta = self
+            .inventory
+            .query_by_path(path.to_str().unwrap_or(""))
+            .context("failed to query metadata by path")?
+            .ok_or_else(|| anyhow::anyhow!("no metadata found for path: {:?}", path))?;
+
+        if file_meta
+            .metadata
+            .get(metadata::THUMBNAIL_DISABLED)
+            .is_some()
+        {
+            return Err(anyhow::anyhow!("thumbnail disabled for path: {:?}", path));
+        }
+
+        let thumb_res = self
+            .cr_client
+            .get_file_thumb(path.to_str().unwrap_or(""), None)
+            .await?;
+
+        // Download the thumbnail
+        let thumb_url = thumb_res.url;
+        let thumb_response = reqwest::get(thumb_url).await?;
+        // Make sure the response is successful
+        if !thumb_response.status().is_success() {
+            return Err(anyhow::anyhow!(
+                "failed to download thumbnail: {:?}",
+                thumb_response.status()
+            ));
+        }
+        Ok(thumb_response.bytes().await?)
     }
 }
