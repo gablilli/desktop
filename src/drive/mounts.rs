@@ -3,6 +3,7 @@ use crate::cfapi::root::{
     SyncRootInfo,
 };
 use crate::drive::callback::CallbackHandler;
+use crate::drive::commands::ManagerCommand;
 use crate::drive::commands::MountCommand;
 use crate::inventory::InventoryDb;
 use crate::tasks::{TaskManager, TaskManagerConfig};
@@ -63,13 +64,18 @@ pub struct Mount {
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     status: Arc<RwLock<MountStatus>>,
+    manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     pub cr_client: Arc<Client>,
     pub inventory: Arc<InventoryDb>,
     pub id: String,
 }
 
 impl Mount {
-    pub async fn new(config: DriveConfig, inventory: Arc<InventoryDb>) -> Self {
+    pub async fn new(
+        config: DriveConfig,
+        inventory: Arc<InventoryDb>,
+        manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
+    ) -> Self {
         let task_config = TaskManagerConfig {
             max_workers: 4,
             completed_buffer_size: 100,
@@ -91,7 +97,7 @@ impl Mount {
                 refresh_expires: config.credentials.refresh_expires.clone(),
             })
             .await;
-        let command_tx_clone = command_tx.clone();
+        let command_tx_clone: mpsc::UnboundedSender<MountCommand> = command_tx.clone();
         // Setup hooks to update the credentials in the config
         cr_client.set_on_credential_refreshed(Arc::new(move |token| {
             let command_tx = command_tx_clone.clone();
@@ -116,6 +122,7 @@ impl Mount {
             inventory: inventory,
             status: Arc::new(RwLock::new(MountStatus::InSync)),
             id,
+            manager_command_tx,
         }
     }
 
@@ -240,7 +247,12 @@ impl Mount {
                     config.credentials.refresh_token = credentials.refresh_token;
                     config.credentials.refresh_expires = credentials.refresh_expires;
                     config.credentials.access_expires = Some(credentials.access_expires);
-                    // TODO: persist to JSON
+
+                    // Notify manager to persist config
+                    let command = ManagerCommand::PersistConfig;
+                    if let Err(e) = s.manager_command_tx.send(command) {
+                        tracing::error!(target: "drive::mounts", id = %mount_id, error = %e, "Failed to send PersistConfig command");
+                    }
                     drop(config);
                 }
                 MountCommand::FetchData {

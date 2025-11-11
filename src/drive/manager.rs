@@ -166,7 +166,12 @@ impl DriveManager {
         }
 
         let mut write_guard = self.drives.write().await;
-        let mut mount = Mount::new(config.clone(), self.inventory.clone()).await;
+        let mut mount = Mount::new(
+            config.clone(),
+            self.inventory.clone(),
+            self.command_tx.clone(),
+        )
+        .await;
         if let Err(e) = mount.start().await {
             tracing::error!(target: "drive", error = %e, "Failed to start drive");
             return Err(e).context("Failed to start drive");
@@ -312,6 +317,12 @@ impl DriveManager {
                         // TODO: handle result in UI
                         tracing::debug!(target: "drive::manager", path = %path.display(), result = ?result, "ViewOnline command result");
                     });
+                }
+                ManagerCommand::PersistConfig => {
+                    let result = manager.persist().await;
+                    if let Err(e) = result {
+                        tracing::error!(target: "drive::manager", error = %e, "Failed to persist config");
+                    }
                 }
             }
         }

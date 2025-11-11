@@ -47,7 +47,10 @@ unsafe impl Send for MountCommand {}
 #[derive(Debug)]
 pub enum ManagerCommand {
     /// View a file or folder online in the web interface
-    ViewOnline { path: PathBuf },
+    ViewOnline {
+        path: PathBuf,
+    },
+    PersistConfig,
 }
 
 impl Mount {
