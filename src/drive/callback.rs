@@ -84,7 +84,9 @@ impl SyncFilter for CallbackHandler {
         let src = request.path();
         let dest = info.target_path();
         tracing::debug!(target: "drive::mounts", id = %self.id, source_path = %src.display(), target_path = %dest.display(), "Rename");
-        Err(CloudErrorKind::NotSupported)
+        // TODO: delete sometimes trigger rename callback
+        ticket.pass();
+        Ok(())
     }
 
     fn fetch_placeholders(

@@ -1,6 +1,6 @@
 use crate::{
     cfapi::{metadata::Metadata, placeholder_file::PlaceholderFile},
-    drive::utils::remote_path_to_local_relative_path,
+    drive::{mounts::Mount, utils::remote_path_to_local_relative_path},
     inventory::MetadataEntry,
 };
 use anyhow::Result;
@@ -145,5 +145,94 @@ fn normalize_event_kind(kind: &EventKind) -> EventKind {
         EventKind::Modify(_) => EventKind::Modify(ModifyKind::Any),
         EventKind::Remove(_) => EventKind::Remove(RemoveKind::Any),
         EventKind::Other => EventKind::Other,
+    }
+}
+
+/// Determines how deep a sync operation should traverse for a given path list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncMode {
+    /// Sync only the provided path entries.
+    PathOnly,
+    /// Sync the provided path entries and their first-level children.
+    PathAndFirstLayer,
+    /// Sync the provided path entries and every descendant.
+    FullHierarchy,
+}
+
+impl Mount {
+    /// Syncs a list of local paths by grouping them under their parent directories.
+    pub async fn sync_paths(&self, local_paths: Vec<PathBuf>, mode: SyncMode) -> Result<()> {
+        if local_paths.is_empty() {
+            tracing::debug!(target: "drive::sync", id = %self.id, "No paths provided for sync");
+            return Ok(());
+        }
+
+        let mut grouped: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+
+        for path in local_paths {
+            let parent = path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| path.clone());
+            grouped.entry(parent).or_default().push(path);
+        }
+
+        for (parent, paths) in grouped.iter() {
+            self.sync_group(parent, paths, mode).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn sync_group(
+        &self,
+        parent: &PathBuf,
+        paths: &[PathBuf],
+        mode: SyncMode,
+    ) -> Result<()> {
+        tracing::info!(
+            target: "drive::sync",
+            id = %self.id,
+            parent = %parent.display(),
+            paths = paths.len(),
+            mode = ?mode,
+            "Queued grouped sync"
+        );
+
+        match mode {
+            SyncMode::PathOnly => {
+                for path in paths {
+                    tracing::debug!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        "TODO: sync path only"
+                    );
+                }
+            }
+            SyncMode::PathAndFirstLayer => {
+                for path in paths {
+                    tracing::debug!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        "TODO: sync path and first layer of children"
+                    );
+                }
+            }
+            SyncMode::FullHierarchy => {
+                for path in paths {
+                    tracing::debug!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        "TODO: sync path and descendants"
+                    );
+                }
+            }
+        }
+
+        // TODO: plug in actual sync tasks once implemented.
+        Ok(())
     }
 }
