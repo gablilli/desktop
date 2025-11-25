@@ -50,6 +50,7 @@ impl SubCommands {
 
 impl IEnumExplorerCommand_Impl for SubCommands_Impl {
     fn Clone(&self) -> windows::core::Result<IEnumExplorerCommand> {
+        tracing::trace!(target: "shellext::context_menu:sub_commands", "Clone called");
         let inner = self.inner.lock().unwrap();
         Ok(ComObject::new(SubCommands {
             inner: Mutex::new(SubCommandsData {
@@ -66,6 +67,7 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
         mut commands: *mut Option<IExplorerCommand>,
         fetched: *mut u32,
     ) -> HRESULT {
+        tracing::trace!(target: "shellext::context_menu:sub_commands", count, "Next called");
         if count == 0 {
             if !fetched.is_null() {
                 unsafe {
@@ -83,9 +85,10 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
         let mut total_count = 0u32;
 
         while count > 0 && inner.current < inner.commands.len() {
-            let command = inner.commands[inner.current].clone();
+            let command = ComObject::new(inner.commands[inner.current].clone());
             unsafe {
-                commands.write(Some(command));
+                commands.write(Some(command.to_interface()));
+                tracing::trace!(target: "shellext::context_menu:sub_commands", "Next command written");
                 commands = commands.add(1);
             }
             inner.current += 1;
@@ -94,6 +97,7 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
         }
 
         if !fetched.is_null() {
+            tracing::trace!(target: "shellext::context_menu:sub_commands", total_count, "Total count written");
             unsafe {
                 fetched.write(total_count);
             }
@@ -107,12 +111,14 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
     }
 
     fn Reset(&self) -> windows::core::Result<()> {
+        tracing::trace!(target: "shellext::context_menu:sub_commands", "Reset called");
         let mut inner = self.inner.lock().unwrap();
         inner.current = 0;
         Ok(())
     }
 
     fn Skip(&self, count: u32) -> windows::core::Result<()> {
+        tracing::trace!(target: "shellext::context_menu:sub_commands", "Skip called");
         let mut inner = self.inner.lock().unwrap();
         inner.current = (inner.current + count as usize).min(inner.commands.len());
         Ok(())
@@ -254,19 +260,7 @@ impl IExplorerCommand_Impl for CrExplorerCommandHandler_Impl {
     }
 
     fn GetState(&self, items: Option<&IShellItemArray>, _oktobeslow: BOOL) -> Result<u32> {
-        let Some(items) = items else {
-            // Not select anthing, but still triggerd from a folder
-            return Ok(ECS_ENABLED.0 as u32);
-        };
-
-        unsafe {
-            let count = items.GetCount()?;
-            if count <= 1 {
-                Ok(ECS_ENABLED.0 as u32)
-            } else {
-                Ok(ECS_HIDDEN.0 as u32)
-            }
-        }
+        Ok(ECS_ENABLED.0 as u32)
     }
 
     fn Invoke(
@@ -275,39 +269,15 @@ impl IExplorerCommand_Impl for CrExplorerCommandHandler_Impl {
         _bindctx: Option<&IBindCtx>,
     ) -> Result<()> {
         tracing::debug!(target: "shellext::context_menu", "View online context menu command invoked");
-
-        if let Some(items) = selection {
-            unsafe {
-                let count = items.GetCount()?;
-                if count != 1 {
-                    return Ok(());
-                }
-
-                // Get the first item
-                let item = items.GetItemAt(0)?;
-                let display_name = item.GetDisplayName(SIGDN_FILESYSPATH)?;
-                let path_str = display_name.to_string()?;
-                let path = PathBuf::from(path_str.clone());
-
-                tracing::debug!(target: "shellext::context_menu", path = %path_str, "View online requested");
-
-                // Send command through channel to async processor
-                let command_tx = self.drive_manager.get_command_sender();
-
-                if let Err(e) = command_tx.send(ManagerCommand::ViewOnline { path: path.clone() }) {
-                    tracing::error!(target: "shellext::context_menu", error = %e, "Failed to send ViewOnline command");
-                }
-            }
-        }
-
         Ok(())
     }
 
     fn GetFlags(&self) -> Result<u32> {
-        Ok(ECF_DEFAULT.0 as u32)
+        Ok((ECF_DEFAULT.0 | ECF_HASSUBCOMMANDS.0 | ECF_ISDROPDOWN.0) as u32)
     }
 
     fn EnumSubCommands(&self) -> Result<IEnumExplorerCommand> {
+        tracing::trace!(target: "shellext::context_menu", "EnumSubCommands called");
         Ok(SubCommands::new(vec![
             ViewOnlineCommandHandler::new(self.drive_manager.clone()).into(),
         ])
