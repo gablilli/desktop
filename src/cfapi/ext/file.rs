@@ -7,13 +7,13 @@ use std::{
 
 use widestring::U16CStr;
 use windows::{
-    core,
     Win32::{
         Foundation::HANDLE,
         Storage::CloudFilters::{
-            self, CfDehydratePlaceholder, CF_SYNC_PROVIDER_STATUS, CF_SYNC_ROOT_STANDARD_INFO,
+            self, CF_SYNC_PROVIDER_STATUS, CF_SYNC_ROOT_STANDARD_INFO, CfDehydratePlaceholder,
         },
     },
+    core,
 };
 
 use crate::cfapi::sealed::Sealed;

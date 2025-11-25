@@ -1,7 +1,7 @@
 use axum::{
+    Json,
     http::StatusCode,
     response::{IntoResponse, Response},
-    Json,
 };
 
 use super::ApiResponse;
@@ -44,4 +44,3 @@ impl IntoResponse for AppError {
         (status, body).into_response()
     }
 }
-

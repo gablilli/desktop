@@ -209,7 +209,7 @@ impl TaskManager {
         properties: TaskProperties,
     ) -> Result<TaskId, String> {
         use super::models::TaskExecutionResult;
-        
+
         // Create a simple default executor
         let executor: TaskExecutor = Arc::new(|props| {
             Box::pin(async move {

@@ -2,11 +2,11 @@ use std::{mem, ptr};
 
 use memoffset::offset_of;
 use windows::{
-    core,
     Win32::Storage::CloudFilters::{
-        self, CfExecute, CF_CONNECTION_KEY, CF_OPERATION_INFO, CF_OPERATION_PARAMETERS,
-        CF_OPERATION_PARAMETERS_0, CF_OPERATION_TYPE,
+        self, CF_CONNECTION_KEY, CF_OPERATION_INFO, CF_OPERATION_PARAMETERS,
+        CF_OPERATION_PARAMETERS_0, CF_OPERATION_TYPE, CfExecute,
     },
+    core,
 };
 
 use crate::cfapi::{

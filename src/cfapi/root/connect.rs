@@ -1,10 +1,10 @@
 use std::{
-    sync::{Arc},
+    sync::Arc,
     thread::{self},
     time::Duration,
 };
 
-use windows::Win32::Storage::CloudFilters::{CfDisconnectSyncRoot, CF_CONNECTION_KEY};
+use windows::Win32::Storage::CloudFilters::{CF_CONNECTION_KEY, CfDisconnectSyncRoot};
 
 use crate::cfapi::filter::{Callbacks, RawConnectionKey};
 
@@ -13,10 +13,9 @@ use crate::cfapi::filter::{Callbacks, RawConnectionKey};
 /// [Connection] will disconnect when dropped. Note that this
 /// does **NOT** mean the sync root will be unregistered. To do so, call
 /// [SyncRootId::unregister][crate::root::SyncRootId::unregister].
-#[derive(Debug,Clone)]
+#[derive(Debug, Clone)]
 pub struct Connection<F> {
     connection_key: RawConnectionKey,
-
 
     _callbacks: Callbacks,
     filter: Arc<F>,

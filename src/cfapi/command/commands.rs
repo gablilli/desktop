@@ -1,7 +1,6 @@
 use std::{ops::Range, ptr};
 
 use windows::{
-    core,
     Win32::{
         Foundation,
         Storage::CloudFilters::{
@@ -11,10 +10,11 @@ use windows::{
             CF_OPERATION_PARAMETERS_0_7, CF_OPERATION_TYPE,
         },
     },
+    core,
 };
 
 use crate::cfapi::{
-    command::executor::{execute, Command, Fallible},
+    command::executor::{Command, Fallible, execute},
     error::CloudErrorKind,
     filter::{RawConnectionKey, RawTransferKey},
     metadata::Metadata,

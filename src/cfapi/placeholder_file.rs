@@ -2,11 +2,11 @@ use std::{path::Path, ptr, slice};
 
 use widestring::U16CString;
 use windows::{
-    core::{self, PCWSTR},
     Win32::{
         Foundation,
-        Storage::CloudFilters::{self, CfCreatePlaceholders, CF_PLACEHOLDER_CREATE_INFO},
+        Storage::CloudFilters::{self, CF_PLACEHOLDER_CREATE_INFO, CfCreatePlaceholders},
     },
+    core::{self, PCWSTR},
 };
 
 use crate::cfapi::{metadata::Metadata, sealed, usn::Usn};

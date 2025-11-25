@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use windows::{
+    Win32::Storage::CloudFilters::{CF_CONNECTION_KEY, CfReportProviderProgress},
     core,
-    Win32::Storage::CloudFilters::{CfReportProviderProgress, CF_CONNECTION_KEY},
 };
 
 use crate::cfapi::{

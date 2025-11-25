@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use crate::cfapi::{
     error::{CResult, CloudErrorKind},
-    filter::{info, ticket, Request},
+    filter::{Request, info, ticket},
 };
 
 /// Core functions for implementing a Sync Engine.

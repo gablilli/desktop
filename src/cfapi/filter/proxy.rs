@@ -8,7 +8,7 @@ use windows::Win32::Storage::CloudFilters::{
 
 use crate::cfapi::{
     command::{self, Fallible},
-    filter::{info, ticket, Request, SyncFilter},
+    filter::{Request, SyncFilter, info, ticket},
 };
 
 pub type Callbacks = [CF_CALLBACK_REGISTRATION; 14];

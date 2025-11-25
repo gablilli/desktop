@@ -7,13 +7,12 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use widestring::{u16cstr, U16CStr, U16CString, U16Str, U16String};
+use widestring::{U16CStr, U16CString, U16Str, U16String, u16cstr};
 use windows::{
-    core::{self, Error, HSTRING, PCWSTR, PWSTR},
     Storage::{Provider::StorageProviderSyncRootManager, StorageFolder},
     Win32::{
         Foundation::{
-            self, LocalFree, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER, HANDLE, HLOCAL,
+            self, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_PARAMETER, HANDLE, HLOCAL, LocalFree,
         },
         Security::{self, Authorization::ConvertSidToStringSidW, GetTokenInformation, TOKEN_USER},
         Storage::CloudFilters,
@@ -22,6 +21,7 @@ use windows::{
             Search::{self, ISearchManager},
         },
     },
+    core::{self, Error, HSTRING, PCWSTR, PWSTR},
 };
 
 use crate::cfapi::utility::ToHString;

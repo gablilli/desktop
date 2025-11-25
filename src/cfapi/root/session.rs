@@ -4,8 +4,8 @@ use std::{
     os::windows::{fs::OpenOptionsExt, io::AsRawHandle},
     path::{Path, PathBuf},
     sync::{
-        mpsc::{self, Sender, TryRecvError},
         Arc, Weak,
+        mpsc::{self, Sender, TryRecvError},
     },
     thread::{self, JoinHandle},
     time::Duration,
@@ -13,18 +13,18 @@ use std::{
 
 use widestring::{U16CString, U16Str};
 use windows::{
-    core::{self, PCWSTR},
     Win32::{
         Foundation::{ERROR_IO_INCOMPLETE, HANDLE, WIN32_ERROR},
         Storage::{
-            CloudFilters::{self, CfConnectSyncRoot, CF_CONNECT_FLAGS},
+            CloudFilters::{self, CF_CONNECT_FLAGS, CfConnectSyncRoot},
             FileSystem::{
-                ReadDirectoryChangesW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED,
-                FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_INFORMATION,
+                FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OVERLAPPED, FILE_LIST_DIRECTORY,
+                FILE_NOTIFY_CHANGE_ATTRIBUTES, FILE_NOTIFY_INFORMATION, ReadDirectoryChangesW,
             },
         },
         System::IO::{CancelIoEx, GetOverlappedResult},
     },
+    core::{self, PCWSTR},
 };
 
 use crate::cfapi::{
@@ -82,11 +82,7 @@ impl Session {
             )
         }?;
 
-        Ok(Connection::new(
-            key.0,
-            callbacks,
-            filter,
-        ))
+        Ok(Connection::new(key.0, callbacks, filter))
     }
 
     /// Initiates a connection to the sync root with the given [Filter].

@@ -66,7 +66,7 @@ pub struct Mount {
     queue: Arc<TaskManager>,
     pub config: Arc<RwLock<DriveConfig>>,
     connection: Option<Connection<CallbackHandler>>,
-    command_tx: mpsc::UnboundedSender<MountCommand>,
+    pub command_tx: mpsc::UnboundedSender<MountCommand>,
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     status: Arc<RwLock<MountStatus>>,
@@ -267,6 +267,15 @@ impl Mount {
             tracing::trace!(target: "drive::mounts", id = %mount_id, command = ?command, "Processing command");
 
             match command {
+                MountCommand::Sync { mode, local_paths } => {
+                    let s_clone = s.clone();
+                    let mount_id_clone = mount_id.clone();
+                    spawn(async move {
+                        if let Err(e) = s_clone.sync_paths(local_paths, mode).await {
+                            tracing::error!(target: "drive::mounts", id = %mount_id_clone, error = %e, "Failed to sync paths");
+                        }
+                    });
+                }
                 MountCommand::FetchPlaceholders { path, response } => {
                     let s_clone = s.clone();
                     let mount_id_clone = mount_id.clone();

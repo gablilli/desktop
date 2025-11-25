@@ -1,6 +1,10 @@
 use crate::{
     cfapi::{filter::ticket, utility::WriteAt},
-    drive::{mounts::Mount, sync::GroupedFsEvents, utils::local_path_to_cr_uri},
+    drive::{
+        mounts::Mount,
+        sync::{GroupedFsEvents, SyncMode},
+        utils::local_path_to_cr_uri,
+    },
 };
 use anyhow::{Context, Result};
 use bytes::Bytes;
@@ -52,6 +56,10 @@ pub enum MountCommand {
     },
     ProcessFsEvents {
         events: GroupedFsEvents,
+    },
+    Sync {
+        local_paths: Vec<PathBuf>,
+        mode: SyncMode,
     },
 }
 
@@ -340,7 +348,7 @@ impl Mount {
                     error = %e,
                     "Batch delete operation failed"
                 );
-                self.handle_delete_error(e, &path_uri_mappings)?
+                self.handle_delete_error(e, &path_uri_mappings).await?
             }
         };
 
@@ -387,7 +395,7 @@ impl Mount {
 
     /// Handle deletion errors and determine which paths were successfully deleted.
     /// Returns the list of paths that were successfully deleted despite partial failures.
-    fn handle_delete_error(
+    async fn handle_delete_error(
         &self,
         error: ApiError,
         path_uri_mappings: &HashMap<String, PathBuf>,
@@ -398,7 +406,7 @@ impl Mount {
                 aggregated_errors: Some(errors),
             } => {
                 // Collect failed URIs
-                let failed_uris: std::collections::HashSet<_> = errors.keys().collect();
+                let failed_uris: std::collections::HashSet<_> = errors.keys().cloned().collect();
 
                 tracing::warn!(
                     target: "drive::commands",
@@ -407,12 +415,35 @@ impl Mount {
                     "Partial batch delete failure"
                 );
 
-                // Return paths that weren't in the failed set
-                let successful_paths = path_uri_mappings
-                    .iter()
-                    .filter(|(uri, _)| !failed_uris.contains(uri))
-                    .map(|(_, path)| path.clone())
-                    .collect();
+                let mut successful_paths = Vec::new();
+                let mut failed_paths = Vec::new();
+
+                for (uri, path) in path_uri_mappings {
+                    if failed_uris.contains(uri) {
+                        failed_paths.push(path.clone());
+                    } else {
+                        successful_paths.push(path.clone());
+                    }
+                }
+
+                if !failed_paths.is_empty() {
+                    tracing::info!(
+                        target: "drive::commands",
+                        failed_count = failed_paths.len(),
+                        "Scheduling resync for failed deletions"
+                    );
+                    let command = MountCommand::Sync {
+                        local_paths: failed_paths.clone(),
+                        mode: SyncMode::PathOnly,
+                    };
+                    if let Err(e) = self.command_tx.send(command) {
+                        tracing::error!(
+                            target: "drive::commands",
+                            error = %e,
+                            "Failed to send Sync command"
+                        );
+                    }
+                }
 
                 Ok(successful_paths)
             }
@@ -423,6 +454,13 @@ impl Mount {
                     error = %error,
                     "Complete batch delete failure - no files were deleted"
                 );
+                let command = MountCommand::Sync {
+                    local_paths: path_uri_mappings.values().cloned().collect(),
+                    mode: SyncMode::PathOnly,
+                };
+                if let Err(e) = self.command_tx.send(command) {
+                    tracing::error!(target: "drive::commands", error = %e, "Failed to send Sync command");
+                }
                 Ok(Vec::new())
             }
         }

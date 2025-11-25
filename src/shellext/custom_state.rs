@@ -71,7 +71,8 @@ impl IStorageProviderItemPropertySource_Impl for CustomStateHandler_Impl {
             if !permission.enabled(file_permission::READ as usize) {
                 let properties = StorageProviderItemProperty::new()?;
                 properties.SetId(2)?;
-                properties.SetIconResource(&HSTRING::from(format!("{}\\lock.ico,0", image_path)))?;
+                properties
+                    .SetIconResource(&HSTRING::from(format!("{}\\lock.ico,0", image_path)))?;
                 properties.SetValue(&HSTRING::from(t!("noAccess").as_ref()))?;
                 vec.push(Some(properties));
             }

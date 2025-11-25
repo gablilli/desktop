@@ -10,21 +10,20 @@ use std::{
 
 use widestring::U16CString;
 use windows::{
-    core::{self, PCWSTR},
     Win32::{
         Foundation::{
-            CloseHandle, BOOL, ERROR_NOT_A_CLOUD_FILE, E_HANDLE, HANDLE, INVALID_HANDLE_VALUE,
+            BOOL, CloseHandle, E_HANDLE, ERROR_NOT_A_CLOUD_FILE, HANDLE, INVALID_HANDLE_VALUE,
         },
         Storage::CloudFilters::{
-            self, CfCloseHandle, CfConvertToPlaceholder, CfGetPlaceholderInfo,
+            self, CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_OPEN_FILE_FLAGS, CF_PIN_STATE,
+            CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO, CF_SET_PIN_FLAGS,
+            CF_UPDATE_FLAGS, CfCloseHandle, CfConvertToPlaceholder, CfGetPlaceholderInfo,
             CfGetPlaceholderRangeInfo, CfGetWin32HandleFromProtectedHandle, CfHydratePlaceholder,
             CfOpenFileWithOplock, CfReferenceProtectedHandle, CfReleaseProtectedHandle,
             CfRevertPlaceholder, CfSetInSyncState, CfSetPinState, CfUpdatePlaceholder,
-            CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_OPEN_FILE_FLAGS, CF_PIN_STATE,
-            CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO, CF_SET_PIN_FLAGS,
-            CF_UPDATE_FLAGS,
         },
     },
+    core::{self, PCWSTR},
 };
 
 use crate::cfapi::{metadata::Metadata, usn::Usn};

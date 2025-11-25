@@ -1,6 +1,6 @@
 use std::{ffi::OsString, path::PathBuf, slice};
 
-use widestring::{u16cstr, U16CStr};
+use widestring::{U16CStr, u16cstr};
 use windows::Win32::Storage::CloudFilters::{CF_CALLBACK_INFO, CF_PROCESS_INFO};
 
 pub type RawConnectionKey = i64;

@@ -146,17 +146,22 @@ impl TaskProperties {
 
 /// Task execution function type - now returns TaskExecutionResult for custom results
 pub type TaskExecutor = Arc<
-    dyn Fn(Arc<RwLock<TaskProperties>>) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = TaskExecutionResult> + Send>,
-        > + Send
+    dyn Fn(
+            Arc<RwLock<TaskProperties>>,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = TaskExecutionResult> + Send>>
+        + Send
         + Sync,
 >;
 
 /// Task completion callback type - now receives TaskExecutionResult
 pub type TaskCallback = Arc<
-    dyn Fn(TaskId, TaskStatus, TaskExecutionResult) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = ()> + Send>,
-        > + Send
+    dyn Fn(
+            TaskId,
+            TaskStatus,
+            TaskExecutionResult,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
         + Sync,
 >;
 
@@ -307,4 +312,3 @@ impl TaskFilter {
         true
     }
 }
-

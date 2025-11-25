@@ -8,7 +8,7 @@ pub mod info;
 pub mod ticket;
 
 pub use async_filter::{AsyncBridge, Filter};
-pub(crate) use proxy::{callbacks, Callbacks};
+pub(crate) use proxy::{Callbacks, callbacks};
 pub use request::{Process, Request};
 pub(crate) use request::{RawConnectionKey, RawTransferKey};
 pub use sync_filter::SyncFilter;

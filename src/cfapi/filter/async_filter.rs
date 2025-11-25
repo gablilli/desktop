@@ -6,7 +6,7 @@ use crate::cfapi::{
     utility::LocalBoxFuture,
 };
 
-use super::{info, ticket, SyncFilter};
+use super::{SyncFilter, info, ticket};
 
 /// Async core functions for implementing a Sync Engine.
 ///
