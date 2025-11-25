@@ -8,7 +8,7 @@ use crate::{
         mounts::Mount,
         utils::{local_path_to_cr_uri, remote_path_to_local_relative_path},
     },
-    inventory::MetadataEntry,
+    inventory::{FileMetadata, MetadataEntry},
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -29,7 +29,7 @@ use nt_time::FileTime;
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
-    fs, io,
+    fmt, fs, io,
     path::{Path, PathBuf},
     time::SystemTime,
 };
@@ -205,6 +205,12 @@ impl From<PlaceholderInfo> for LocalPlaceholderState {
     }
 }
 
+impl LocalPlaceholderState {
+    fn is_hydrated(&self) -> bool {
+        self.on_disk_data_size > 0 || self.validated_data_size > 0
+    }
+}
+
 #[derive(Debug, Clone)]
 struct LocalFileInfo {
     exists: bool,
@@ -282,11 +288,188 @@ impl LocalFileInfo {
             placeholder,
         })
     }
+
+    fn is_pinned(&self) -> bool {
+        self.placeholder
+            .as_ref()
+            .map(|state| state.pin_state == PinState::Pinned)
+            .unwrap_or(false)
+    }
+
+    fn is_hydrated(&self) -> bool {
+        if !self.exists {
+            return false;
+        }
+
+        match self.placeholder.as_ref() {
+            Some(state) => {
+                if self.is_directory {
+                    state.is_hydrated()
+                } else if let Some(size) = self.file_size {
+                    state.is_hydrated() && state.on_disk_data_size >= size as i64
+                } else {
+                    state.is_hydrated()
+                }
+            }
+            None => true,
+        }
+    }
 }
 
 fn should_suppress_placeholder_error(err: &WindowsError) -> bool {
     let code = err.code();
     code == ERROR_FILE_NOT_FOUND.to_hresult() || code == ERROR_PATH_NOT_FOUND.to_hresult()
+}
+
+const CONFLICT_PREFIX: &str = "__conflict__";
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+enum SyncAction {
+    CreatePlaceholderAndInventory { path: PathBuf, remote: FileResponse },
+    UpdateInventoryFromRemote { path: PathBuf, remote: FileResponse },
+    ConvertLocalToPlaceholder { path: PathBuf, remote: FileResponse },
+    RefreshPinnedHydratedContent { path: PathBuf, remote: FileResponse },
+    QueueUpload { path: PathBuf, reason: UploadReason },
+    DeleteLocalAndInventory { path: PathBuf, is_directory: bool },
+    CreateRemoteFolder { path: PathBuf },
+    RenameLocalWithConflict { original: PathBuf, renamed: PathBuf },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum UploadReason {
+    RemoteMismatch,
+    RemoteMissing,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum WalkReason {
+    ModePropagation,
+    DiffTriggered,
+}
+
+#[derive(Debug, Clone)]
+struct WalkRequest {
+    path: PathBuf,
+    mode: SyncMode,
+    reason: WalkReason,
+}
+
+#[derive(Default)]
+struct SyncPlan {
+    actions: Vec<SyncAction>,
+    walk_requests: Vec<WalkRequest>,
+}
+
+#[derive(Debug)]
+struct SyncErrorEntry {
+    path: PathBuf,
+    error: anyhow::Error,
+}
+
+#[derive(Debug)]
+struct SyncAggregateError {
+    context: String,
+    entries: Vec<SyncErrorEntry>,
+}
+
+impl SyncAggregateError {
+    fn new(context: impl Into<String>) -> Self {
+        Self {
+            context: context.into(),
+            entries: Vec::new(),
+        }
+    }
+
+    fn push<E>(&mut self, path: PathBuf, error: E)
+    where
+        E: Into<anyhow::Error>,
+    {
+        self.entries.push(SyncErrorEntry {
+            path,
+            error: error.into(),
+        });
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn into_result(self) -> Result<()> {
+        if self.is_empty() {
+            Ok(())
+        } else {
+            Err(self.into())
+        }
+    }
+}
+
+impl fmt::Display for SyncAggregateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "{} encountered {} error(s):",
+            self.context,
+            self.entries.len()
+        )?;
+        for entry in &self.entries {
+            writeln!(f, "- {}: {}", entry.path.display(), entry.error)?;
+        }
+        Ok(())
+    }
+}
+
+impl std::error::Error for SyncAggregateError {}
+
+fn local_has_pending_changes(local: &LocalFileInfo, inventory: Option<&FileMetadata>) -> bool {
+    if let Some(placeholder) = local.placeholder.as_ref() {
+        if placeholder.modified_data_size > 0 || !placeholder.in_sync {
+            return true;
+        }
+    }
+
+    // if let (Some(last_modified), Some(entry)) = (local.last_modified, inventory) {
+    //     if let Some(last_modified_secs) = system_time_to_unix_secs(last_modified) {
+    //         return last_modified_secs > entry.updated_at;
+    //     }
+    // }
+
+    false
+}
+
+fn system_time_to_unix_secs(time: SystemTime) -> Option<i64> {
+    match time.duration_since(SystemTime::UNIX_EPOCH) {
+        Ok(duration) => Some(duration.as_secs() as i64),
+        Err(err) => {
+            let duration = err.duration();
+            Some(-(duration.as_secs() as i64))
+        }
+    }
+}
+
+fn generate_conflict_path(path: &Path) -> PathBuf {
+    let timestamp = Utc::now().format("%Y%m%d%H%M%S");
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("item");
+    let ext = path.extension().and_then(|value| value.to_str());
+    let mut new_name = format!("{}{}_{}", CONFLICT_PREFIX, timestamp, stem);
+    if let Some(ext) = ext {
+        new_name.push('.');
+        new_name.push_str(ext);
+    }
+    let mut conflict_path = path.to_path_buf();
+    conflict_path.set_file_name(new_name);
+    conflict_path
+}
+
+fn next_child_mode(mode: SyncMode) -> SyncMode {
+    match mode {
+        SyncMode::FullHierarchy => SyncMode::FullHierarchy,
+        SyncMode::PathAndFirstLayer => SyncMode::PathOnly,
+        SyncMode::PathOnly => SyncMode::PathOnly,
+    }
 }
 
 impl Mount {
@@ -307,11 +490,16 @@ impl Mount {
             grouped.entry(parent).or_default().push(path);
         }
 
+        let mut aggregate_error = SyncAggregateError::new(format!("Mount {} sync_paths", self.id));
+
         for (parent, paths) in grouped.iter() {
-            self.sync_group(parent, paths, mode).await?;
+            if let Err(err) = self.sync_group(parent, paths, mode).await {
+                let target_path = paths.first().cloned().unwrap_or_else(|| parent.clone());
+                aggregate_error.push(target_path, err);
+            }
         }
 
-        Ok(())
+        aggregate_error.into_result()
     }
 
     async fn sync_group(&self, parent: &PathBuf, paths: &[PathBuf], mode: SyncMode) -> Result<()> {
@@ -323,6 +511,12 @@ impl Mount {
             mode = ?mode,
             "Queued grouped sync"
         );
+
+        let mut aggregate_error = SyncAggregateError::new(format!(
+            "Mount {} sync_group({})",
+            self.id,
+            parent.display()
+        ));
 
         let remote_files = self.fetch_remote_file_infos(parent, paths).await?;
         tracing::debug!(
@@ -345,41 +539,79 @@ impl Mount {
         );
         tracing::trace!("{:?}", local_files);
 
-        match mode {
-            SyncMode::PathOnly => {
-                for path in paths {
+        let inventory_files = self.fetch_inventory_entries(paths).await?;
+        tracing::trace!("{:?}", inventory_files);
+
+        let plan = self.build_sync_plan(
+            parent,
+            mode,
+            paths,
+            &remote_files,
+            &local_files,
+            &inventory_files,
+        );
+
+        tracing::debug!(
+            target: "drive::sync",
+            id = %self.id,
+            parent = %parent.display(),
+            actions = plan.actions.len(),
+            walks = plan.walk_requests.len(),
+            "Planned sync actions"
+        );
+        tracing::trace!(target: "drive::sync", plan = ?plan.actions, "Planned actions detail");
+
+        // TODO: Execute generated actions
+
+        for walk in plan.walk_requests {
+            match self.collect_child_targets(&walk.path).await {
+                Ok(child_paths) => {
+                    if child_paths.is_empty() {
+                        tracing::trace!(
+                            target: "drive::sync",
+                            id = %self.id,
+                            path = %walk.path.display(),
+                            "Skipping walk, no children discovered"
+                        );
+                        continue;
+                    }
+
                     tracing::debug!(
                         target: "drive::sync",
                         id = %self.id,
-                        path = %path.display(),
-                        "TODO: sync path only"
+                        directory = %walk.path.display(),
+                        reason = ?walk.reason,
+                        next_mode = ?walk.mode,
+                        children = child_paths.len(),
+                        "Walking child directory"
                     );
+
+                    let child_future =
+                        Box::pin(self.sync_group(&walk.path, &child_paths, walk.mode));
+                    if let Err(err) = child_future.await {
+                        tracing::error!(
+                            target: "drive::sync",
+                            id = %self.id,
+                            directory = %walk.path.display(),
+                            error = %err,
+                            "Failed to walk child directory"
+                        );
+                        aggregate_error.push(walk.path.clone(), err);
+                    }
                 }
-            }
-            SyncMode::PathAndFirstLayer => {
-                for path in paths {
-                    tracing::debug!(
+                Err(err) => {
+                    tracing::warn!(
                         target: "drive::sync",
                         id = %self.id,
-                        path = %path.display(),
-                        "TODO: sync path and first layer of children"
+                        directory = %walk.path.display(),
+                        error = %err,
+                        "Failed to enumerate child directory"
                     );
-                }
-            }
-            SyncMode::FullHierarchy => {
-                for path in paths {
-                    tracing::debug!(
-                        target: "drive::sync",
-                        id = %self.id,
-                        path = %path.display(),
-                        "TODO: sync path and descendants"
-                    );
+                    aggregate_error.push(walk.path.clone(), err);
                 }
             }
         }
-
-        // TODO: plug in actual sync tasks once implemented.
-        Ok(())
+        aggregate_error.into_result()
     }
 
     async fn fetch_local_file_infos(
@@ -506,5 +738,432 @@ impl Mount {
         }
 
         Ok(remote_entries)
+    }
+
+    async fn fetch_inventory_entries(
+        &self,
+        paths: &[PathBuf],
+    ) -> Result<HashMap<PathBuf, FileMetadata>> {
+        if paths.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut targets: Vec<(PathBuf, String)> = Vec::with_capacity(paths.len());
+        for path in paths {
+            match path.to_str() {
+                Some(path_str) => targets.push((path.clone(), path_str.to_string())),
+                None => {
+                    tracing::warn!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        "Unable to convert path to UTF-8 for inventory lookup"
+                    );
+                }
+            }
+        }
+
+        if targets.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let inventory = self.inventory.clone();
+        let entries = task::spawn_blocking(move || -> Result<HashMap<PathBuf, FileMetadata>> {
+            let mut results = HashMap::with_capacity(targets.len());
+            for (path_buf, path_str) in targets {
+                match inventory.query_by_path(&path_str)? {
+                    Some(entry) => {
+                        results.insert(path_buf, entry);
+                    }
+                    None => {}
+                }
+            }
+            Ok(results)
+        })
+        .await??;
+
+        Ok(entries)
+    }
+
+    fn build_sync_plan(
+        &self,
+        _parent: &PathBuf,
+        mode: SyncMode,
+        paths: &[PathBuf],
+        remote_files: &HashMap<PathBuf, FileResponse>,
+        local_files: &HashMap<PathBuf, LocalFileInfo>,
+        inventory_entries: &HashMap<PathBuf, FileMetadata>,
+    ) -> SyncPlan {
+        let mut plan = SyncPlan::default();
+
+        for path in paths {
+            let local_info = local_files
+                .get(path)
+                .cloned()
+                .unwrap_or_else(LocalFileInfo::missing);
+            let remote = remote_files.get(path);
+            let inventory = inventory_entries.get(path);
+            self.plan_entry_actions(path, mode, remote, &local_info, inventory, &mut plan);
+        }
+
+        plan
+    }
+
+    fn plan_entry_actions(
+        &self,
+        path: &PathBuf,
+        mode: SyncMode,
+        remote: Option<&FileResponse>,
+        local: &LocalFileInfo,
+        inventory: Option<&FileMetadata>,
+        plan: &mut SyncPlan,
+    ) {
+        match (remote, local.exists) {
+            (Some(remote_entry), true) => self.plan_entry_with_remote_and_local(
+                path,
+                mode,
+                remote_entry,
+                local,
+                inventory,
+                plan,
+            ),
+            (Some(remote_entry), false) => {
+                plan.actions
+                    .push(SyncAction::CreatePlaceholderAndInventory {
+                        path: path.clone(),
+                        remote: remote_entry.clone(),
+                    });
+            }
+            (None, true) => {
+                self.plan_entry_with_local_only(path, mode, local, inventory, plan);
+            }
+            (None, false) => {}
+        }
+    }
+
+    fn plan_entry_with_remote_and_local(
+        &self,
+        path: &PathBuf,
+        mode: SyncMode,
+        remote: &FileResponse,
+        local: &LocalFileInfo,
+        inventory: Option<&FileMetadata>,
+        plan: &mut SyncPlan,
+    ) {
+        let remote_is_dir = remote.file_type == file_type::FOLDER;
+
+        if local.is_directory != remote_is_dir {
+            let conflict_path = generate_conflict_path(path);
+            plan.actions.push(SyncAction::RenameLocalWithConflict {
+                original: path.clone(),
+                renamed: conflict_path,
+            });
+            plan.actions
+                .push(SyncAction::CreatePlaceholderAndInventory {
+                    path: path.clone(),
+                    remote: remote.clone(),
+                });
+            return;
+        }
+
+        if remote_is_dir {
+            plan.actions.push(SyncAction::UpdateInventoryFromRemote {
+                path: path.clone(),
+                remote: remote.clone(),
+            });
+            self.maybe_enqueue_walk_for_directory(path, mode, local, false, plan);
+            return;
+        }
+
+        self.plan_file_actions(path, remote, local, inventory, plan);
+    }
+
+    fn plan_entry_with_local_only(
+        &self,
+        path: &PathBuf,
+        mode: SyncMode,
+        local: &LocalFileInfo,
+        inventory: Option<&FileMetadata>,
+        plan: &mut SyncPlan,
+    ) {
+        if !local.exists {
+            return;
+        }
+
+        if local.is_directory {
+            if !local.is_hydrated() {
+                plan.actions.push(SyncAction::DeleteLocalAndInventory {
+                    path: path.clone(),
+                    is_directory: true,
+                });
+            } else {
+                plan.actions
+                    .push(SyncAction::CreateRemoteFolder { path: path.clone() });
+                self.maybe_enqueue_walk_for_directory(path, mode, local, true, plan);
+            }
+            return;
+        }
+
+        let hydrated = local.is_hydrated();
+        let local_dirty = local_has_pending_changes(local, inventory);
+
+        if hydrated && local_dirty {
+            plan.actions.push(SyncAction::QueueUpload {
+                path: path.clone(),
+                reason: UploadReason::RemoteMissing,
+            });
+        } else {
+            plan.actions.push(SyncAction::DeleteLocalAndInventory {
+                path: path.clone(),
+                is_directory: false,
+            });
+        }
+    }
+
+    fn plan_file_actions(
+        &self,
+        path: &PathBuf,
+        remote: &FileResponse,
+        local: &LocalFileInfo,
+        inventory: Option<&FileMetadata>,
+        plan: &mut SyncPlan,
+    ) {
+        let remote_etag = remote.primary_entity.as_deref().unwrap_or("");
+        let etag_match = inventory
+            .map(|entry| entry.etag == remote_etag)
+            .unwrap_or(false);
+
+        if etag_match {
+            plan.actions.push(SyncAction::UpdateInventoryFromRemote {
+                path: path.clone(),
+                remote: remote.clone(),
+            });
+            return;
+        }
+
+        let hydrated = local.is_hydrated();
+        let local_dirty = local_has_pending_changes(local, inventory);
+        let pinned = local.is_pinned();
+
+        if hydrated && !local_dirty {
+            plan.actions.push(SyncAction::UpdateInventoryFromRemote {
+                path: path.clone(),
+                remote: remote.clone(),
+            });
+            if !pinned {
+                plan.actions.push(SyncAction::ConvertLocalToPlaceholder {
+                    path: path.clone(),
+                    remote: remote.clone(),
+                });
+            } else {
+                plan.actions.push(SyncAction::RefreshPinnedHydratedContent {
+                    path: path.clone(),
+                    remote: remote.clone(),
+                });
+            }
+            return;
+        }
+
+        if hydrated && local_dirty {
+            plan.actions.push(SyncAction::QueueUpload {
+                path: path.clone(),
+                reason: UploadReason::RemoteMismatch,
+            });
+            return;
+        }
+
+        plan.actions.push(SyncAction::UpdateInventoryFromRemote {
+            path: path.clone(),
+            remote: remote.clone(),
+        });
+    }
+
+    fn maybe_enqueue_walk_for_directory(
+        &self,
+        path: &PathBuf,
+        parent_mode: SyncMode,
+        local: &LocalFileInfo,
+        force_diff: bool,
+        plan: &mut SyncPlan,
+    ) {
+        if !local.is_directory {
+            return;
+        }
+
+        if matches!(
+            parent_mode,
+            SyncMode::FullHierarchy | SyncMode::PathAndFirstLayer
+        ) {
+            let mode = next_child_mode(parent_mode);
+            self.insert_walk_request(path.clone(), mode, WalkReason::ModePropagation, plan);
+            return;
+        }
+
+        if (force_diff || local.is_hydrated()) && parent_mode == SyncMode::PathOnly {
+            self.insert_walk_request(
+                path.clone(),
+                SyncMode::PathOnly,
+                WalkReason::DiffTriggered,
+                plan,
+            );
+        }
+    }
+
+    fn insert_walk_request(
+        &self,
+        path: PathBuf,
+        mode: SyncMode,
+        reason: WalkReason,
+        plan: &mut SyncPlan,
+    ) {
+        if plan
+            .walk_requests
+            .iter()
+            .any(|request| request.path == path && request.mode == mode)
+        {
+            return;
+        }
+
+        plan.walk_requests.push(WalkRequest { path, mode, reason });
+    }
+
+    async fn collect_child_targets(&self, directory: &PathBuf) -> Result<Vec<PathBuf>> {
+        let dir_clone = directory.clone();
+        let local_children = task::spawn_blocking(move || -> Result<Vec<PathBuf>> {
+            let mut children = Vec::new();
+            match fs::read_dir(&dir_clone) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        children.push(entry.path());
+                    }
+                }
+                Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+                Err(err) => {
+                    return Err(err).context(format!(
+                        "failed to enumerate local directory {}",
+                        dir_clone.display()
+                    ));
+                }
+            }
+            Ok(children)
+        })
+        .await??;
+
+        let remote_children = self.list_remote_children(directory).await?;
+
+        let mut dedup: HashSet<PathBuf> = HashSet::new();
+        for child in local_children
+            .into_iter()
+            .chain(remote_children.into_iter())
+        {
+            dedup.insert(child);
+        }
+
+        Ok(dedup.into_iter().collect())
+    }
+
+    async fn list_remote_children(&self, directory: &PathBuf) -> Result<Vec<PathBuf>> {
+        let (remote_base, sync_root) = {
+            let config = self.config.read().await;
+            (config.remote_path.clone(), config.sync_path.clone())
+        };
+
+        let remote_dir_uri =
+            match local_path_to_cr_uri(directory.clone(), sync_root.clone(), remote_base.clone()) {
+                Ok(uri) => uri,
+                Err(err) => {
+                    tracing::warn!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %directory.display(),
+                        error = %err,
+                        "Failed to map local directory to remote URI while walking"
+                    );
+                    return Ok(Vec::new());
+                }
+            };
+        let remote_dir_uri_str = remote_dir_uri.to_string();
+
+        let remote_base_uri = match CrUri::new(&remote_base) {
+            Ok(uri) => uri,
+            Err(err) => {
+                tracing::warn!(
+                    target: "drive::sync",
+                    id = %self.id,
+                    remote_base = %remote_base,
+                    error = %err,
+                    "Failed to parse remote base URI while walking"
+                );
+                return Ok(Vec::new());
+            }
+        };
+
+        let mut previous_response = None;
+        let mut children = Vec::new();
+
+        loop {
+            let response = match self
+                .cr_client
+                .list_files_all(
+                    previous_response.as_ref(),
+                    remote_dir_uri_str.as_str(),
+                    REMOTE_PAGE_SIZE,
+                )
+                .await
+            {
+                Ok(resp) => resp,
+                Err(ApiError::ApiError { code, .. }) if code == ErrorCode::NotFound as i32 => {
+                    tracing::debug!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        directory = %directory.display(),
+                        "Remote directory missing during walk"
+                    );
+                    return Ok(Vec::new());
+                }
+                Err(err) => {
+                    return Err(err.into());
+                }
+            };
+
+            for file in &response.res.files {
+                if is_symbolic_link(file) {
+                    continue;
+                }
+
+                match CrUri::new(&file.path).and_then(|file_uri| {
+                    remote_path_to_local_relative_path(&file_uri, &remote_base_uri)
+                }) {
+                    Ok(relative) => {
+                        let mut local_path = sync_root.clone();
+                        local_path.push(relative);
+                        if local_path
+                            .parent()
+                            .map(|p| p == directory.as_path())
+                            .unwrap_or(false)
+                        {
+                            children.push(local_path);
+                        }
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            target: "drive::sync",
+                            id = %self.id,
+                            remote_path = %file.path,
+                            error = %err,
+                            "Failed to map remote child to local path"
+                        );
+                    }
+                }
+            }
+
+            if !response.more {
+                break;
+            }
+
+            previous_response = Some(response);
+        }
+
+        Ok(children)
     }
 }
