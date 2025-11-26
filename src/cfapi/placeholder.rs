@@ -38,7 +38,7 @@ use windows::{
     },
     core::{self, Error as WindowsError, PCWSTR},
 };
-use windows_core::PCSTR;
+use windows_core::{HSTRING, PCSTR};
 
 use crate::cfapi::{metadata::Metadata, usn::Usn};
 
@@ -370,9 +370,9 @@ pub struct PlaceholderState {
 }
 
 impl PlaceholderState {
-    pub fn from_find_data(fdata: &WIN32_FIND_DATAA) -> Self {
+    pub fn from_find_data(fdata: *const WIN32_FIND_DATAW) -> Self {
         Self {
-            state: unsafe { CfGetPlaceholderStateFromFindData(fdata) },
+            state: unsafe { CfGetPlaceholderStateFromFindData(fdata as *const _ as *const _) },
         }
     }
 
@@ -426,10 +426,11 @@ impl LocalFileInfo {
     }
 
     pub fn from_path(path: &Path) -> Result<Self> {
-        let mut find_data = unsafe { std::mem::zeroed::<WIN32_FIND_DATAA>() };
+        let mut find_data = unsafe { std::mem::zeroed::<WIN32_FIND_DATAW>() };
+        let u16_path = U16CString::from_os_str(path).unwrap();
         let handle = match unsafe {
-            FindFirstFileExA(
-                PCSTR::from_raw(path.to_str().unwrap_or_default().as_ptr()),
+            FindFirstFileExW(
+                PCWSTR::from_raw(u16_path.as_ptr()),
                 FindExInfoBasic,
                 &mut find_data as *mut _ as *mut _,
                 FindExSearchNameMatch,
@@ -438,7 +439,10 @@ impl LocalFileInfo {
             )
         } {
             Ok(handle) => handle,
-            Err(_) => return Ok(Self::missing()),
+            Err(err) => {
+                tracing::debug!(target: "cfapi::placeholder", "error getting file info from path {}: {:?}", path.display(), err);
+                return Ok(Self::missing())
+            },
         };
 
         // Close the handle after use

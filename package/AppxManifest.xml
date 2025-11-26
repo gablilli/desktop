@@ -8,8 +8,10 @@
   xmlns:desktop3="http://schemas.microsoft.com/appx/manifest/desktop/windows10/3"
   xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
   xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
-  xmlns:cloudfiles2="http://schemas.microsoft.com/appx/manifest/cloudfiles/windows10/2"        
-  IgnorableNamespaces="uap mp rescap desktop3 desktop4 cloudfiles2">
+  xmlns:cloudfiles2="http://schemas.microsoft.com/appx/manifest/cloudfiles/windows10/2" 
+  xmlns:uap7="http://schemas.microsoft.com/appx/manifest/uap/windows10/7"     
+  xmlns:uap8="http://schemas.microsoft.com/appx/manifest/uap/windows10/8"  
+  IgnorableNamespaces="uap mp rescap desktop3 desktop4 cloudfiles2 uap7 uap8">
 
 
   <Identity
@@ -43,6 +45,9 @@
         <uap:DefaultTile
           Wide310x150Logo="Images\Wide310x150Logo.png" />
       </uap:VisualElements>
+      <uap7:Properties>
+        <uap8:ActiveCodePage>UTF-8</uap8:ActiveCodePage>
+      </uap7:Properties>
       <Extensions>
        <desktop3:Extension Category="windows.cloudFiles">
           <desktop3:CloudFiles>
