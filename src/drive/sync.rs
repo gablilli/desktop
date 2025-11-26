@@ -348,11 +348,18 @@ enum WalkReason {
     DiffTriggered,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WalkTiming {
+    Immediate,
+    Deferred,
+}
+
 #[derive(Debug, Clone)]
 struct WalkRequest {
     path: PathBuf,
     mode: SyncMode,
     reason: WalkReason,
+    timing: WalkTiming,
 }
 
 #[derive(Default)]
@@ -421,7 +428,7 @@ impl fmt::Display for SyncAggregateError {
 
 impl std::error::Error for SyncAggregateError {}
 
-fn local_has_pending_changes(local: &LocalFileInfo, inventory: Option<&FileMetadata>) -> bool {
+fn local_has_pending_changes(local: &LocalFileInfo, _inventory: Option<&FileMetadata>) -> bool {
     if let Some(placeholder) = local.placeholder.as_ref() {
         if placeholder.modified_data_size > 0 || !placeholder.in_sync {
             return true;
@@ -475,6 +482,8 @@ fn next_child_mode(mode: SyncMode) -> SyncMode {
 impl Mount {
     /// Syncs a list of local paths by grouping them under their parent directories.
     pub async fn sync_paths(&self, local_paths: Vec<PathBuf>, mode: SyncMode) -> Result<()> {
+        let _sync_guard = self.sync_lock.lock().await;
+
         if local_paths.is_empty() {
             tracing::debug!(target: "drive::sync", id = %self.id, "No paths provided for sync");
             return Ok(());
@@ -499,6 +508,7 @@ impl Mount {
             }
         }
 
+        drop(_sync_guard);
         aggregate_error.into_result()
     }
 
@@ -561,56 +571,18 @@ impl Mount {
         );
         tracing::trace!(target: "drive::sync", plan = ?plan.actions, "Planned actions detail");
 
+        let (immediate_walks, deferred_walks): (Vec<_>, Vec<_>) = plan
+            .walk_requests
+            .into_iter()
+            .partition(|request| request.timing == WalkTiming::Immediate);
+
+        self.process_walk_requests(immediate_walks, &mut aggregate_error)
+            .await;
+
         // TODO: Execute generated actions
 
-        for walk in plan.walk_requests {
-            match self.collect_child_targets(&walk.path).await {
-                Ok(child_paths) => {
-                    if child_paths.is_empty() {
-                        tracing::trace!(
-                            target: "drive::sync",
-                            id = %self.id,
-                            path = %walk.path.display(),
-                            "Skipping walk, no children discovered"
-                        );
-                        continue;
-                    }
-
-                    tracing::debug!(
-                        target: "drive::sync",
-                        id = %self.id,
-                        directory = %walk.path.display(),
-                        reason = ?walk.reason,
-                        next_mode = ?walk.mode,
-                        children = child_paths.len(),
-                        "Walking child directory"
-                    );
-
-                    let child_future =
-                        Box::pin(self.sync_group(&walk.path, &child_paths, walk.mode));
-                    if let Err(err) = child_future.await {
-                        tracing::error!(
-                            target: "drive::sync",
-                            id = %self.id,
-                            directory = %walk.path.display(),
-                            error = %err,
-                            "Failed to walk child directory"
-                        );
-                        aggregate_error.push(walk.path.clone(), err);
-                    }
-                }
-                Err(err) => {
-                    tracing::warn!(
-                        target: "drive::sync",
-                        id = %self.id,
-                        directory = %walk.path.display(),
-                        error = %err,
-                        "Failed to enumerate child directory"
-                    );
-                    aggregate_error.push(walk.path.clone(), err);
-                }
-            }
-        }
+        self.process_walk_requests(deferred_walks, &mut aggregate_error)
+            .await;
         aggregate_error.into_result()
     }
 
@@ -871,7 +843,7 @@ impl Mount {
                 path: path.clone(),
                 remote: remote.clone(),
             });
-            self.maybe_enqueue_walk_for_directory(path, mode, local, false, plan);
+            self.maybe_enqueue_walk_for_directory(path, mode, local, false, false, plan);
             return;
         }
 
@@ -891,16 +863,18 @@ impl Mount {
         }
 
         if local.is_directory {
-            if !local.is_hydrated() {
+            let hydrated = local.is_hydrated();
+            if !hydrated {
                 plan.actions.push(SyncAction::DeleteLocalAndInventory {
                     path: path.clone(),
                     is_directory: true,
                 });
-            } else {
-                plan.actions
-                    .push(SyncAction::CreateRemoteFolder { path: path.clone() });
-                self.maybe_enqueue_walk_for_directory(path, mode, local, true, plan);
+                return;
             }
+
+            plan.actions
+                .push(SyncAction::CreateRemoteFolder { path: path.clone() });
+            self.maybe_enqueue_walk_for_directory(path, mode, local, true, hydrated, plan);
             return;
         }
 
@@ -984,18 +958,31 @@ impl Mount {
         parent_mode: SyncMode,
         local: &LocalFileInfo,
         force_diff: bool,
+        immediate: bool,
         plan: &mut SyncPlan,
     ) {
         if !local.is_directory {
             return;
         }
 
+        let timing = if immediate {
+            WalkTiming::Immediate
+        } else {
+            WalkTiming::Deferred
+        };
+
         if matches!(
             parent_mode,
             SyncMode::FullHierarchy | SyncMode::PathAndFirstLayer
         ) {
             let mode = next_child_mode(parent_mode);
-            self.insert_walk_request(path.clone(), mode, WalkReason::ModePropagation, plan);
+            self.insert_walk_request(
+                path.clone(),
+                mode,
+                WalkReason::ModePropagation,
+                timing,
+                plan,
+            );
             return;
         }
 
@@ -1004,6 +991,7 @@ impl Mount {
                 path.clone(),
                 SyncMode::PathOnly,
                 WalkReason::DiffTriggered,
+                timing,
                 plan,
             );
         }
@@ -1014,6 +1002,7 @@ impl Mount {
         path: PathBuf,
         mode: SyncMode,
         reason: WalkReason,
+        timing: WalkTiming,
         plan: &mut SyncPlan,
     ) {
         if plan
@@ -1024,7 +1013,71 @@ impl Mount {
             return;
         }
 
-        plan.walk_requests.push(WalkRequest { path, mode, reason });
+        plan.walk_requests.push(WalkRequest {
+            path,
+            mode,
+            reason,
+            timing,
+        });
+    }
+
+    async fn process_walk_requests(
+        &self,
+        requests: Vec<WalkRequest>,
+        aggregate_error: &mut SyncAggregateError,
+    ) {
+        for walk in requests {
+            match self.collect_child_targets(&walk.path).await {
+                Ok(child_paths) => {
+                    if child_paths.is_empty() {
+                        tracing::trace!(
+                            target: "drive::sync",
+                            id = %self.id,
+                            path = %walk.path.display(),
+                            timing = ?walk.timing,
+                            "Skipping walk, no children discovered"
+                        );
+                        continue;
+                    }
+
+                    tracing::debug!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        directory = %walk.path.display(),
+                        reason = ?walk.reason,
+                        next_mode = ?walk.mode,
+                        children = child_paths.len(),
+                        timing = ?walk.timing,
+                        "Walking child directory"
+                    );
+
+                    let child_future =
+                        Box::pin(self.sync_group(&walk.path, &child_paths, walk.mode));
+                    if let Err(err) = child_future.await {
+                        tracing::error!(
+                            target: "drive::sync",
+                            id = %self.id,
+                            directory = %walk.path.display(),
+                            error = %err,
+                            timing = ?walk.timing,
+                            "Failed to walk child directory"
+                        );
+                        aggregate_error.push(walk.path.clone(), err);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        directory = %walk.path.display(),
+                        error = %err,
+                        timing = ?walk.timing,
+                        "Failed to enumerate child directory"
+                    );
+                    aggregate_error.push(walk.path.clone(), err);
+                }
+            }
+        }
     }
 
     async fn collect_child_targets(&self, directory: &PathBuf) -> Result<Vec<PathBuf>> {

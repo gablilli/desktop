@@ -72,6 +72,7 @@ pub struct Mount {
     status: Arc<RwLock<MountStatus>>,
     manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     fs_watcher: Mutex<Option<FsWatcher>>,
+    pub(crate) sync_lock: Mutex<()>,
     pub cr_client: Arc<Client>,
     pub inventory: Arc<InventoryDb>,
     pub id: String,
@@ -131,6 +132,7 @@ impl Mount {
             id,
             manager_command_tx,
             fs_watcher: Mutex::new(None),
+            sync_lock: Mutex::new(()),
         }
     }
 

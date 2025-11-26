@@ -64,6 +64,7 @@ features = [
     "ApplicationModel_Core",
     "Win32_Graphics_Gdi",
     "Graphics_Imaging",
+    "Win32_System_Com_StructuredStorage",
 ]
 
 [build-dependencies]

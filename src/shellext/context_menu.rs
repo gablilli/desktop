@@ -1,18 +1,17 @@
 // Context menu handler for Windows Explorer
 // This implements a COM object that provides a custom context menu item
+use crate::drive::commands::ManagerCommand;
+use crate::drive::manager::DriveManager;
+use rust_i18n::t;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-
+use windows::ApplicationModel;
+use windows::Win32::System::Com::StructuredStorage::IPropertyBag;
 use windows::{
     Win32::{Foundation::*, System::Com::*, UI::Shell::*},
     core::*,
 };
-
-use crate::drive::commands::ManagerCommand;
-use crate::drive::manager::DriveManager;
-use rust_i18n::t;
-use windows::ApplicationModel;
 
 // UUID for our context menu handler - matches the C++ implementation
 pub const CLSID_EXPLORER_COMMAND: GUID = GUID::from_u128(0x165cd069_d9c8_42b4_8e37_b6971afa4494);
@@ -129,7 +128,7 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
     }
 }
 
-#[implement(IExplorerCommand)]
+#[implement(IExplorerCommand, IInitializeCommand)]
 pub struct ViewOnlineCommandHandler {
     drive_manager: Arc<DriveManager>,
     images_path: String,
@@ -223,6 +222,16 @@ impl IExplorerCommand_Impl for ViewOnlineCommandHandler_Impl {
 
     fn EnumSubCommands(&self) -> Result<IEnumExplorerCommand> {
         Err(Error::from(E_NOTIMPL))
+    }
+}
+
+impl IInitializeCommand_Impl for ViewOnlineCommandHandler_Impl {
+    fn Initialize(
+        &self,
+        _command_name: &windows::core::PCWSTR,
+        _property_bag: Option<&IPropertyBag>,
+    ) -> windows::core::Result<()> {
+        Err(E_NOTIMPL.into())
     }
 }
 
