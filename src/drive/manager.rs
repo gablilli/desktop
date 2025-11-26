@@ -1,5 +1,6 @@
 use super::commands::ManagerCommand;
 use super::mounts::{DriveConfig, Mount};
+use crate::drive::commands::MountCommand;
 use crate::drive::utils::view_online_url;
 use crate::inventory::InventoryDb;
 use anyhow::{Context, Result};
@@ -323,6 +324,28 @@ impl DriveManager {
                     if let Err(e) = result {
                         tracing::error!(target: "drive::manager", error = %e, "Failed to persist config");
                     }
+                }
+                ManagerCommand::SyncNow { paths, mode } => {
+                    let paths = paths.clone();
+                    if paths.len() < 1 {
+                        tracing::error!(target: "drive::manager", "No paths provided for sync command");
+                        return;
+                    }
+                    spawn(async move {
+                        let drive = manager
+                            .search_drive_by_child_path(
+                                paths.get(0).unwrap().to_str().unwrap_or(""),
+                            )
+                            .await;
+                        if let Some(drive) = drive {
+                            let _ = drive.command_tx.send(MountCommand::Sync {
+                                local_paths: paths,
+                                mode: mode,
+                            });
+                        } else {
+                            tracing::error!(target: "drive::manager", "No drive found for path: {:?}", paths.get(0).unwrap());
+                        }
+                    });
                 }
                 ManagerCommand::GenerateThumbnail { path, response } => {
                     let path = path.clone();

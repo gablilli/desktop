@@ -81,6 +81,10 @@ pub enum ManagerCommand {
         path: PathBuf,
         response: Sender<Result<Bytes>>,
     },
+    SyncNow {
+        paths: Vec<PathBuf>,
+        mode: SyncMode,
+    },
 }
 
 impl Mount {
