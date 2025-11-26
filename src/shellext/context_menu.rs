@@ -87,10 +87,10 @@ impl IEnumExplorerCommand_Impl for SubCommands_Impl {
         let mut total_count = 0u32;
 
         while count > 0 && inner.current < inner.commands.len() {
-            let command: ComObject<ViewOnlineCommandHandler> =
-                ComObject::new(ViewOnlineCommandHandler::new(self.drive_manager.clone()).into());
+            let command = ComObject::new(ViewOnlineCommandHandler::new(self.drive_manager.clone()))
+                .to_interface();
             unsafe {
-                commands.write(Some(command.to_interface()));
+                commands.write(Some(command));
                 tracing::trace!(target: "shellext::context_menu:sub_commands", "Next command written");
                 commands = commands.add(1);
             }
@@ -163,7 +163,8 @@ impl IExplorerCommand_Impl for ViewOnlineCommandHandler_Impl {
     }
 
     fn GetCanonicalName(&self) -> Result<GUID> {
-        Err(Error::from(E_NOTIMPL))
+        tracing::trace!(target: "shellext::context_menu:view_online", "GetCanonicalName called");
+        Ok(GUID::from_u128(0xe9206944_a659_434b_967b_27e15d2fef20))
     }
 
     fn GetState(&self, items: Option<&IShellItemArray>, _oktobeslow: BOOL) -> Result<u32> {
@@ -271,7 +272,7 @@ impl IExplorerCommand_Impl for CrExplorerCommandHandler_Impl {
     }
 
     fn GetCanonicalName(&self) -> Result<GUID> {
-        Err(Error::from(E_NOTIMPL))
+        Ok(CLSID_EXPLORER_COMMAND)
     }
 
     fn GetState(&self, items: Option<&IShellItemArray>, _oktobeslow: BOOL) -> Result<u32> {
