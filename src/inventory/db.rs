@@ -221,7 +221,7 @@ impl InventoryDb {
             r#"
             INSERT INTO file_metadata 
             (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared, size)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
             ON CONFLICT(local_path) DO UPDATE SET
                 drive_id = excluded.drive_id,
                 is_folder = excluded.is_folder,
@@ -246,6 +246,7 @@ impl InventoryDb {
                 props_json,
                 entry.permissions,
                 entry.shared,
+                entry.size,
             ],
         )?;
 
