@@ -5,6 +5,7 @@ use crate::{
         sync::{GroupedFsEvents, SyncMode},
         utils::local_path_to_cr_uri,
     },
+    tasks::TaskPayload,
 };
 use anyhow::{Context, Result};
 use bytes::Bytes;
@@ -282,9 +283,42 @@ impl Mount {
         for (event_kind, events) in events {
             match event_kind {
                 EventKind::Remove(_) => self.process_fs_delete_events(events).await?,
+                EventKind::Create(_) => self.process_fs_create_events(events).await?,
                 _ => (),
             }
         }
+        Ok(())
+    }
+
+    async fn process_fs_create_events(&self, events: Vec<Event>) -> Result<()> {
+        tracing::debug!(
+            target: "drive::commands",
+            event_count = events.len(),
+            "Processing filesystem create events"
+        );
+
+        // Extract configuration once to avoid repeated lock acquisition
+        let (sync_path, remote_base) = {
+            let config = self.config.read().await;
+            (config.sync_path.clone(), config.remote_path.to_string())
+        };
+
+        let path_uri_mappings = self.build_path_uri_mappings(&events, &sync_path, &remote_base);
+
+        if path_uri_mappings.is_empty() {
+            tracing::warn!(target: "drive::commands", "No valid URIs to delete");
+            return Ok(());
+        }
+
+        for (remote_uri, path) in path_uri_mappings {
+            let payload = TaskPayload::upload(path.clone()).with_remote_uri(remote_uri);
+
+            self.task_queue
+                .enqueue(payload)
+                .await
+                .context("Failed to enqueue upload task")?;
+        }
+
         Ok(())
     }
 
@@ -296,7 +330,7 @@ impl Mount {
     /// 2. Sends batch delete request to the server
     /// 3. Handles partial failures in batch operations
     /// 4. Updates local inventory for successfully deleted files
-    pub async fn process_fs_delete_events(&self, events: Vec<Event>) -> Result<()> {
+    async fn process_fs_delete_events(&self, events: Vec<Event>) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",
             event_count = events.len(),

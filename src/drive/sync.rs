@@ -6,6 +6,7 @@ use crate::{
         utils::{local_path_to_cr_uri, remote_path_to_local_relative_path},
     },
     inventory::{FileMetadata, MetadataEntry},
+    tasks::TaskPayload,
 };
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -23,6 +24,7 @@ use notify_debouncer_full::notify::event::{
 };
 use notify_debouncer_full::{DebouncedEvent, notify::Event};
 use nt_time::FileTime;
+use serde_json::json;
 use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
@@ -583,16 +585,14 @@ impl Mount {
                     reason = ?reason,
                     "Queueing upload task"
                 );
-                // TODO: Queue upload task via task manager
             }
-            SyncAction::QueueDownload { path, remote: _ } => {
+            SyncAction::QueueDownload { path, remote } => {
                 tracing::info!(
                     target: "drive::sync",
                     id = %self.id,
                     path = %path.display(),
                     "Queueing download task"
                 );
-                // TODO: Queue download task via task manager
             }
             SyncAction::DeleteLocalAndInventory { path, is_directory } => {
                 tracing::info!(

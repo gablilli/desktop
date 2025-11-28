@@ -119,3 +119,164 @@ impl From<&FileMetadata> for MetadataEntry {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskRecord {
+    pub id: String,
+    pub drive_id: String,
+    pub task_type: String,
+    pub local_path: String,
+    pub remote_uri: Option<String>,
+    pub status: TaskStatus,
+    pub progress: f64,
+    pub total_bytes: i64,
+    pub processed_bytes: i64,
+    pub priority: i32,
+    pub custom_state: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct NewTaskRecord {
+    pub id: String,
+    pub drive_id: String,
+    pub task_type: String,
+    pub local_path: String,
+    pub remote_uri: Option<String>,
+    pub status: TaskStatus,
+    pub progress: f64,
+    pub total_bytes: i64,
+    pub processed_bytes: i64,
+    pub priority: i32,
+    pub custom_state: Option<serde_json::Value>,
+    pub error: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl NewTaskRecord {
+    pub fn new(
+        id: impl Into<String>,
+        drive_id: impl Into<String>,
+        task_type: impl Into<String>,
+        local_path: impl Into<String>,
+    ) -> Self {
+        let now = chrono::Utc::now().timestamp();
+        Self {
+            id: id.into(),
+            drive_id: drive_id.into(),
+            task_type: task_type.into(),
+            local_path: local_path.into(),
+            remote_uri: None,
+            status: TaskStatus::Pending,
+            progress: 0.0,
+            total_bytes: 0,
+            processed_bytes: 0,
+            priority: 0,
+            custom_state: None,
+            error: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn with_remote_uri(mut self, remote_uri: impl Into<String>) -> Self {
+        self.remote_uri = Some(remote_uri.into());
+        self
+    }
+
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_status(mut self, status: TaskStatus) -> Self {
+        self.status = status;
+        self
+    }
+
+    pub fn with_progress(mut self, progress: f64) -> Self {
+        self.progress = progress;
+        self
+    }
+
+    pub fn with_totals(mut self, total_bytes: i64, processed_bytes: i64) -> Self {
+        self.total_bytes = total_bytes;
+        self.processed_bytes = processed_bytes;
+        self
+    }
+
+    pub fn with_custom_state(mut self, state: serde_json::Value) -> Self {
+        self.custom_state = Some(state);
+        self
+    }
+
+    pub fn with_error(mut self, error: impl Into<String>) -> Self {
+        self.error = Some(error.into());
+        self
+    }
+
+    pub fn touch(mut self) -> Self {
+        self.updated_at = chrono::Utc::now().timestamp();
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TaskStatus {
+    Pending,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl TaskStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskStatus::Pending => "pending",
+            TaskStatus::Running => "running",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
+            TaskStatus::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(TaskStatus::Pending),
+            "running" => Some(TaskStatus::Running),
+            "completed" => Some(TaskStatus::Completed),
+            "failed" => Some(TaskStatus::Failed),
+            "cancelled" => Some(TaskStatus::Cancelled),
+            _ => None,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        matches!(self, TaskStatus::Pending | TaskStatus::Running)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TaskUpdate {
+    pub status: Option<TaskStatus>,
+    pub progress: Option<f64>,
+    pub total_bytes: Option<i64>,
+    pub processed_bytes: Option<i64>,
+    pub custom_state: Option<Option<serde_json::Value>>,
+    pub error: Option<Option<String>>,
+}
+
+impl TaskUpdate {
+    pub fn is_empty(&self) -> bool {
+        self.status.is_none()
+            && self.progress.is_none()
+            && self.total_bytes.is_none()
+            && self.processed_bytes.is_none()
+            && self.custom_state.is_none()
+            && self.error.is_none()
+    }
+}

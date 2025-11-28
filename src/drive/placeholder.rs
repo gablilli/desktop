@@ -89,15 +89,15 @@ impl CrPlaceholder {
             .context("failed to upsert inventory")?;
 
         // Notify shell change
-        // notify_shell_change(
-        //     &self.local_path,
-        //     if file_meta.is_folder {
-        //         SHCNE_CREATE
-        //     } else {
-        //         SHCNE_MKDIR
-        //     },
-        // )
-        // .context("failed to notify shell change")?;
+        notify_shell_change(
+            &self.local_path,
+            if file_meta.is_folder {
+                SHCNE_CREATE
+            } else {
+                SHCNE_MKDIR
+            },
+        )
+        .context("failed to notify shell change")?;
 
         Ok(())
     }

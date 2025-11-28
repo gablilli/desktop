@@ -6,7 +6,8 @@ use crate::drive::callback::CallbackHandler;
 use crate::drive::commands::ManagerCommand;
 use crate::drive::commands::MountCommand;
 use crate::drive::sync::group_fs_events;
-use crate::inventory::InventoryDb;
+use crate::inventory::{InventoryDb, TaskRecord};
+use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
 use cloudreve_api::{Client, ClientConfig, models::user::Token};
@@ -73,6 +74,7 @@ pub struct Mount {
     pub(crate) sync_lock: Mutex<()>,
     pub cr_client: Arc<Client>,
     pub inventory: Arc<InventoryDb>,
+    pub task_queue: Arc<TaskQueue>,
     pub id: String,
 }
 
@@ -116,6 +118,8 @@ impl Mount {
         }));
 
         let id = config.id.clone();
+        let queue_config = resolve_task_queue_config(&config);
+        let task_queue = TaskQueue::new(id.clone(), inventory.clone(), queue_config).await;
 
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -125,6 +129,7 @@ impl Mount {
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cr_client: Arc::new(cr_client),
             inventory: inventory,
+            task_queue,
             status: Arc::new(RwLock::new(MountStatus::InSync)),
             id,
             manager_command_tx,
@@ -140,6 +145,18 @@ impl Mount {
     /// Get the sync path for the drive
     pub async fn get_sync_path(&self) -> PathBuf {
         self.config.read().await.sync_path.clone()
+    }
+
+    pub fn task_queue(&self) -> Arc<TaskQueue> {
+        self.task_queue.clone()
+    }
+
+    pub fn list_active_tasks(&self) -> Result<Vec<TaskRecord>> {
+        self.task_queue.list_active_tasks()
+    }
+
+    pub async fn list_task_progress(&self) -> Vec<TaskProgress> {
+        self.task_queue.ongoing_progress().await
     }
 
     pub async fn start(&mut self) -> Result<()> {
@@ -365,6 +382,7 @@ impl Mount {
         if let Some(ref connection) = self.connection {
             connection.disconnect();
         }
+        self.task_queue.shutdown().await;
         if let Some(sync_root_id) = self.config.read().await.sync_root_id.as_ref() {
             if let Err(e) = sync_root_id.unregister() {
                 tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to unregister sync root");
@@ -408,4 +426,27 @@ fn generate_sync_root_id(
         .build();
 
     Ok(sync_root_id)
+}
+
+fn resolve_task_queue_config(config: &DriveConfig) -> TaskQueueConfig {
+    let concurrency = config
+        .extra
+        .get("task_queue_max_concurrency")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .filter(|value| *value > 0)
+        .unwrap_or(2);
+
+    let buffer_capacity = config
+        .extra
+        .get("task_queue_buffer_capacity")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .filter(|value| *value > 0)
+        .unwrap_or(concurrency * 8);
+
+    TaskQueueConfig {
+        max_concurrent: concurrency,
+        buffer_capacity,
+    }
 }
