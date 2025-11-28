@@ -12,7 +12,7 @@ use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-const PLACEHOLDER_STEPS: u32 = 5;
+const PLACEHOLDER_STEPS: u32 = 500;
 
 #[derive(Debug, Clone)]
 pub struct TaskQueueConfig {
@@ -200,18 +200,6 @@ impl TaskQueue {
         self.cancel_running_tasks().await;
         self.task_handles.clear();
         self.progress.clear();
-
-        if let Err(err) = self
-            .inventory
-            .cancel_active_tasks_for_drive(&self.drive_id, TaskStatus::Cancelled)
-        {
-            error!(
-                target: "tasks::queue",
-                drive = %self.drive_id,
-                error = %err,
-                "Failed to mark remaining tasks as cancelled"
-            );
-        }
     }
 
     async fn spawn_dispatcher(self: &Arc<Self>, command_rx: mpsc::Receiver<QueueCommand>) {
@@ -535,22 +523,6 @@ impl TaskQueue {
         for task_id in running {
             if let Some((_, handle)) = self.task_handles.remove(&task_id) {
                 handle.abort();
-            }
-
-            if let Err(err) = self.inventory.update_task(
-                &task_id,
-                TaskUpdate {
-                    status: Some(TaskStatus::Cancelled),
-                    ..Default::default()
-                },
-            ) {
-                warn!(
-                    target: "tasks::queue",
-                    drive = %self.drive_id,
-                    task_id = %task_id,
-                    error = %err,
-                    "Failed to persist cancelled status during shutdown"
-                );
             }
 
             self.progress.remove(&task_id);

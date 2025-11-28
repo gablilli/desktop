@@ -51,7 +51,7 @@ impl InventoryDb {
 
         let manager = ConnectionManager::<SqliteConnection>::new(database_url);
         let pool = Pool::builder()
-            .max_size(4)
+            .max_size(1)
             .build(manager)
             .context("Failed to build inventory database connection pool")?;
 
@@ -223,8 +223,7 @@ impl InventoryDb {
         let changeset = TaskChangeset::try_from(update)?;
         diesel::update(task_queue_dsl::task_queue.filter(task_queue_dsl::id.eq(task_id)))
             .set(changeset)
-            .execute(&mut conn)
-            .context("Failed to update task queue record")?;
+            .execute(&mut conn)?;
         Ok(())
     }
 
@@ -257,32 +256,6 @@ impl InventoryDb {
         rows.into_iter()
             .map(TaskRecord::try_from)
             .collect::<Result<Vec<_>>>()
-    }
-
-    /// Mark all active tasks for a drive as cancelled/failed
-    pub fn cancel_active_tasks_for_drive(
-        &self,
-        drive_id: &str,
-        final_status: TaskStatus,
-    ) -> Result<usize> {
-        let mut conn = self.connection()?;
-        let now = Utc::now().timestamp();
-        let status_value = final_status.as_str().to_string();
-        let rows = diesel::update(
-            task_queue_dsl::task_queue
-                .filter(task_queue_dsl::drive_id.eq(drive_id))
-                .filter(task_queue_dsl::status.eq_any(vec![
-                    TaskStatus::Pending.as_str().to_string(),
-                    TaskStatus::Running.as_str().to_string(),
-                ])),
-        )
-        .set((
-            task_queue_dsl::status.eq(status_value),
-            task_queue_dsl::updated_at.eq(now),
-        ))
-        .execute(&mut conn)
-        .context("Failed to cancel task queue records")?;
-        Ok(rows)
     }
 
     /// Delete a completed/failed task entry
