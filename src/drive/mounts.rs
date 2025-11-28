@@ -7,7 +7,6 @@ use crate::drive::commands::ManagerCommand;
 use crate::drive::commands::MountCommand;
 use crate::drive::sync::group_fs_events;
 use crate::inventory::InventoryDb;
-use crate::tasks::{TaskManager, TaskManagerConfig};
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
 use cloudreve_api::{Client, ClientConfig, models::user::Token};
@@ -63,7 +62,6 @@ pub enum MountStatus {
 type FsWatcher = Debouncer<RecommendedWatcher, RecommendedCache>;
 
 pub struct Mount {
-    queue: Arc<TaskManager>,
     pub config: Arc<RwLock<DriveConfig>>,
     connection: Option<Connection<CallbackHandler>>,
     pub command_tx: mpsc::UnboundedSender<MountCommand>,
@@ -84,11 +82,11 @@ impl Mount {
         inventory: Arc<InventoryDb>,
         manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     ) -> Self {
-        let task_config = TaskManagerConfig {
-            max_workers: 4,
-            completed_buffer_size: 100,
-        };
-        let task_manager = TaskManager::new(task_config);
+        // let task_config = TaskManagerConfig {
+        //     max_workers: 4,
+        //     completed_buffer_size: 100,
+        // };
+        // let task_manager = TaskManager::new(task_config);
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         // initialize the client with the credentials
         let client_config = ClientConfig::new(config.instance_url.clone());
@@ -121,7 +119,6 @@ impl Mount {
 
         Self {
             config: Arc::new(RwLock::new(config)),
-            queue: task_manager,
             connection: None,
             command_tx,
             command_rx: Arc::new(tokio::sync::Mutex::new(Some(command_rx))),
@@ -373,7 +370,7 @@ impl Mount {
                 tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to unregister sync root");
             }
         }
-        self.queue.shutdown().await;
+        // self.queue.shutdown().await;
 
         if let Err(e) = self.inventory.nuke_drive(&self.id) {
             tracing::error!(target: "drive::mounts", id=%self.id, error=%e, "Failed to nuke drive");

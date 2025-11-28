@@ -1,13 +1,11 @@
 mod error;
 mod handlers;
 mod sse;
-mod task_handlers;
 
 pub use error::AppError;
 
 use crate::drive::manager::DriveManager;
 use crate::events::EventBroadcaster;
-use crate::tasks::TaskManager;
 use axum::{
     Router,
     routing::{delete, get, post, put},
@@ -20,7 +18,6 @@ use std::sync::Arc;
 pub struct AppState {
     pub drive_manager: Arc<DriveManager>,
     pub event_broadcaster: EventBroadcaster,
-    pub task_manager: Arc<TaskManager>,
 }
 
 /// Standard API response
@@ -66,17 +63,17 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/drives/:id/sync", post(handlers::sync_command))
         .route("/api/drives/:id/status", get(handlers::get_sync_status))
         // Task management
-        .route("/api/tasks", get(task_handlers::list_tasks))
-        .route("/api/tasks", post(task_handlers::submit_task))
-        .route("/api/tasks/statistics", get(task_handlers::get_statistics))
-        .route("/api/tasks/config", put(task_handlers::update_config))
-        .route("/api/tasks/stop", post(task_handlers::stop_all_tasks))
-        .route(
-            "/api/tasks/completed/clear",
-            post(task_handlers::clear_completed),
-        )
-        .route("/api/tasks/:id", get(task_handlers::get_task))
-        .route("/api/tasks/:id/cancel", post(task_handlers::cancel_task))
+        // .route("/api/tasks", get(task_handlers::list_tasks))
+        // .route("/api/tasks", post(task_handlers::submit_task))
+        // .route("/api/tasks/statistics", get(task_handlers::get_statistics))
+        // .route("/api/tasks/config", put(task_handlers::update_config))
+        // .route("/api/tasks/stop", post(task_handlers::stop_all_tasks))
+        // .route(
+        //     "/api/tasks/completed/clear",
+        //     post(task_handlers::clear_completed),
+        // )
+        // .route("/api/tasks/:id", get(task_handlers::get_task))
+        // .route("/api/tasks/:id/cancel", post(task_handlers::cancel_task))
         // Server-Sent Events for real-time updates
         .route("/api/events", get(sse::sse_handler))
         .with_state(state)

@@ -1,5 +1,6 @@
 mod db;
 mod models;
+mod schema;
 
 pub use db::InventoryDb;
 pub use models::{FileMetadata, MetadataEntry};

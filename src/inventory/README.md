@@ -1,6 +1,7 @@
 # Inventory Module
 
-A SQLite-backed inventory system for persisting file metadata in the Cloudreve sync service.
+A SQLite-backed inventory system for persisting file metadata in the Cloudreve sync service.  
+Implementation uses the Diesel ORM with embedded migrations so the schema is automatically migrated to the latest version whenever the process starts.
 
 ## Overview
 
@@ -31,6 +32,7 @@ The following indexes are created for optimal query performance:
 ## Database Location
 
 By default, the database file is stored at:
+
 - Windows: `C:\Users\{username}\.cloudreve\meta.db`
 - Linux/macOS: `~/.cloudreve/meta.db`
 
@@ -96,7 +98,7 @@ if let Some(metadata) = result {
     println!("  Remote URI: {}", metadata.remote_uri);
     println!("  ETag: {}", metadata.etag);
     println!("  Updated at: {}", metadata.updated_at);
-    
+
     // Access custom metadata
     if let Some(content_type) = metadata.metadata.get("content_type") {
         println!("  Content Type: {}", content_type);
@@ -214,7 +216,7 @@ if let Some(metadata) = result {
 
 ## Thread Safety
 
-The `InventoryDb` uses an internal `Arc<Mutex<Connection>>` for thread-safe access to the SQLite database. It's safe to clone and share across threads:
+The `InventoryDb` holds an internal Diesel connection pool (`r2d2`) for thread-safe access to SQLite. It's safe to clone and share across threads:
 
 ```rust
 use std::sync::Arc;
@@ -253,3 +255,10 @@ The module includes comprehensive unit tests. Run them with:
 cargo test --package cloudreve-sync --lib inventory::db::tests
 ```
 
+## Schema Migrations
+
+Migrations live under `migrations/inventory` and are embedded into the binary via `diesel_migrations`. To introduce a schema change:
+
+1. Create a new timestamped folder inside `migrations/inventory` (e.g. `0002_add_new_column`).
+2. Add `up.sql`/`down.sql` files with the required statements. Prefer idempotent SQL (`IF NOT EXISTS`) so existing installs upgrade cleanly.
+3. At runtime the new migration is applied automatically before any inventory queries run.

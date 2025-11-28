@@ -28,7 +28,9 @@ widestring = "1.0.2"
 flagset = "0.4.5"
 memoffset = "0.9.1"
 chrono = "0.4.42"
-rusqlite = { version = "0.32", features = ["bundled"] }
+diesel = { version = "2.1", features = ["sqlite", "r2d2"] }
+diesel_migrations = { version = "2.1", features = ["sqlite"] }
+libsqlite3-sys = { version = "0.28", features = ["bundled"] }
 open = "5.3.2"
 rust-i18n = "3"
 sys-locale="0"

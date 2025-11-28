@@ -1,74 +1,73 @@
 use super::{FileMetadata, MetadataEntry};
-use anyhow::Result;
+use anyhow::{Context, Result, anyhow};
+use chrono::Utc;
+use diesel::OptionalExtension;
+use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
+use diesel::sqlite::SqliteConnection;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use dirs::home_dir;
-use rusqlite::{Connection, OptionalExtension, params};
+use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use uuid::Uuid;
 
-const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS file_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    drive_id TEXT NOT NULL,
-    is_folder INTEGER NOT NULL,
-    local_path TEXT NOT NULL UNIQUE,
-    remote_uri TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
-    etag TEXT NOT NULL,
-    metadata TEXT NOT NULL,
-    props TEXT,
-    permissions TEXT,
-    shared BOOLEAN NOT NULL,
-    size INTEGER NOT NULL,
-    UNIQUE(local_path)
-);
+use super::schema::file_metadata::{self, dsl as file_metadata_dsl};
 
-CREATE INDEX IF NOT EXISTS idx_drive_id ON file_metadata(drive_id);
-CREATE INDEX IF NOT EXISTS idx_local_path ON file_metadata(local_path);
-CREATE INDEX IF NOT EXISTS idx_updated_at ON file_metadata(updated_at);
-"#;
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/inventory");
 
-/// SQLite-backed inventory database for file metadata
+/// SQLite-backed inventory database that relies on Diesel for schema management.
 pub struct InventoryDb {
-    conn: Arc<Mutex<Connection>>,
+    pool: Arc<Pool<ConnectionManager<SqliteConnection>>>,
 }
 
 impl InventoryDb {
-    /// Create or open the inventory database at the default location
-    /// (~/.cloudreve/meta.db)
+    /// Create or open the inventory database at the default location (~/.cloudreve/meta.db)
     pub fn new() -> Result<Self> {
         let db_path = Self::get_db_path()?;
         Self::with_path(db_path)
     }
 
-    /// Create or open the inventory database at a specific path
+    /// Create or open the inventory database at a specific path.
+    /// The schema is automatically migrated to the latest version on startup.
     pub fn with_path(path: PathBuf) -> Result<Self> {
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Failed to create inventory db parent dir {}",
+                    parent.display()
+                )
+            })?;
         }
 
-        let conn = Connection::open(&path)?;
-        let db = InventoryDb {
-            conn: Arc::new(Mutex::new(conn)),
-        };
+        let database_url = path
+            .to_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Invalid inventory database path"))?;
 
-        db.init_schema()?;
-        Ok(db)
+        run_migrations(&database_url)?;
+
+        let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+        let pool = Pool::builder()
+            .max_size(4)
+            .build(manager)
+            .context("Failed to build inventory database connection pool")?;
+
+        Ok(Self {
+            pool: Arc::new(pool),
+        })
     }
 
-    /// Get the default database path (~/.cloudreve/meta.db)
     fn get_db_path() -> Result<PathBuf> {
-        let home = dirs::home_dir().ok_or(anyhow::anyhow!("Unable to determine home directory"))?;
+        let home = home_dir().ok_or_else(|| anyhow!("Unable to determine home directory"))?;
         Ok(home.join(".cloudreve").join("meta.db"))
     }
 
-    /// Initialize the database schema
-    fn init_schema(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute_batch(SCHEMA)?;
-        Ok(())
+    fn connection(&self) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>> {
+        self.pool
+            .get()
+            .context("Failed to get connection from inventory pool")
     }
 
     pub fn batch_insert(&self, entries: &[MetadataEntry]) -> Result<()> {
@@ -76,291 +75,267 @@ impl InventoryDb {
             return Ok(());
         }
 
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let rows: Vec<NewFileMetadata> = entries
+            .iter()
+            .map(NewFileMetadata::try_from)
+            .collect::<Result<_>>()?;
 
-        for entry in entries {
-            let metadata_json = serde_json::to_string(&entry.metadata)?;
-            let props_json = entry
-                .props
-                .as_ref()
-                .map(|p| serde_json::to_string(p))
-                .transpose()?;
-
-            tx.execute(
-                r#"
-                INSERT INTO file_metadata 
-                (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared, size)
-                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-                "#,
-                params![
-                    entry.drive_id.to_string(),
-                    entry.is_folder,
-                    entry.local_path,
-                    entry.remote_uri,
-                    entry.created_at,
-                    entry.updated_at,
-                    entry.etag,
-                    metadata_json,
-                    props_json,
-                    entry.permissions,
-                    entry.shared,
-                    entry.size,
-                ],
-            )?;
-        }
-
-        tx.commit()?;
+        let mut conn = self.connection()?;
+        diesel::insert_into(file_metadata::table)
+            .values(&rows)
+            .execute(&mut conn)
+            .context("Failed to batch insert inventory metadata")?;
         Ok(())
     }
 
-    pub fn nuke_drive(&self, drive_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "DELETE FROM file_metadata WHERE drive_id = ?1",
-            params![drive_id],
-        )?;
+    pub fn nuke_drive(&self, drive: &str) -> Result<()> {
+        let mut conn = self.connection()?;
+        diesel::delete(
+            file_metadata_dsl::file_metadata.filter(file_metadata_dsl::drive_id.eq(drive)),
+        )
+        .execute(&mut conn)
+        .context("Failed to delete inventory rows for drive")?;
         Ok(())
     }
 
     /// Insert a new file metadata entry
-    pub fn insert(&self, entry: &MetadataEntry) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
-        let now = chrono::Utc::now().timestamp();
-
-        let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry
-            .props
-            .as_ref()
-            .map(|p| serde_json::to_string(p))
-            .transpose()?;
-
-        conn.execute(
-            r#"
-            INSERT INTO file_metadata 
-            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared, size)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,?11,?12 )
-            "#,
-            params![
-                entry.drive_id.to_string(),
-                entry.is_folder,
-                entry.local_path,
-                entry.remote_uri,
-                entry.created_at,
-                entry.updated_at,
-                entry.etag,
-                metadata_json,
-                props_json,
-                entry.permissions,
-                entry.shared,
-                entry.size,
-            ],
-        )?;
-
-        Ok(conn.last_insert_rowid())
+    pub fn insert(&self, entry: &MetadataEntry) -> Result<usize> {
+        let mut conn = self.connection()?;
+        let new_entry = NewFileMetadata::try_from(entry)?;
+        diesel::insert_into(file_metadata::table)
+            .values(&new_entry)
+            .execute(&mut conn)
+            .context("Failed to insert inventory metadata")
     }
 
     /// Update an existing file metadata entry by local path
     pub fn update(&self, entry: &MetadataEntry) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        let now = chrono::Utc::now().timestamp();
-
-        let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry
-            .props
-            .as_ref()
-            .map(|p| serde_json::to_string(p))
-            .transpose()?;
-
-        let rows_affected = conn.execute(
-            r#"
-            UPDATE file_metadata 
-            SET drive_id = ?1, 
-                is_folder = ?2,
-                remote_uri = ?3, 
-                updated_at = ?4, 
-                etag = ?5, 
-                metadata = ?6, 
-                props = ?7,
-                permissions = ?8,
-                shared = ?9,
-                size = ?11
-            WHERE local_path = ?10
-            "#,
-            params![
-                entry.drive_id.to_string(),
-                entry.is_folder,
-                entry.remote_uri,
-                now,
-                entry.etag,
-                metadata_json,
-                props_json,
-                entry.permissions,
-                entry.shared,
-                entry.local_path,
-                entry.size,
-            ],
-        )?;
-
+        let mut conn = self.connection()?;
+        let changeset = FileMetadataChangeset::from_entry(entry, Utc::now().timestamp())?;
+        let rows_affected = diesel::update(
+            file_metadata_dsl::file_metadata
+                .filter(file_metadata_dsl::local_path.eq(&entry.local_path)),
+        )
+        .set(changeset)
+        .execute(&mut conn)
+        .context("Failed to update inventory metadata")?;
         Ok(rows_affected > 0)
     }
 
     /// Insert or update a file metadata entry (upsert based on local_path)
-    pub fn upsert(&self, entry: &MetadataEntry) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
-        let now = chrono::Utc::now().timestamp();
+    pub fn upsert(&self, entry: &MetadataEntry) -> Result<usize> {
+        let mut conn = self.connection()?;
+        let now = Utc::now().timestamp();
+        let mut insert_data = NewFileMetadata::try_from(entry)?;
+        insert_data.created_at = now;
+        insert_data.updated_at = now;
+        let update_data = FileMetadataChangeset::from_entry(entry, now)?;
 
-        let metadata_json = serde_json::to_string(&entry.metadata)?;
-        let props_json = entry
-            .props
-            .as_ref()
-            .map(|p| serde_json::to_string(p))
-            .transpose()?;
-
-        conn.execute(
-            r#"
-            INSERT INTO file_metadata 
-            (drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared, size)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-            ON CONFLICT(local_path) DO UPDATE SET
-                drive_id = excluded.drive_id,
-                is_folder = excluded.is_folder,
-                remote_uri = excluded.remote_uri,
-                updated_at = excluded.updated_at,
-                etag = excluded.etag,
-                metadata = excluded.metadata,
-                props = excluded.props,
-                permissions = excluded.permissions,
-                shared = excluded.shared,
-                size = excluded.size
-            "#,
-            params![
-                entry.drive_id.to_string(),
-                entry.is_folder,
-                entry.local_path,
-                entry.remote_uri,
-                now,
-                now,
-                entry.etag,
-                metadata_json,
-                props_json,
-                entry.permissions,
-                entry.shared,
-                entry.size,
-            ],
-        )?;
-
-        Ok(conn.last_insert_rowid())
+        diesel::insert_into(file_metadata::table)
+            .values(&insert_data)
+            .on_conflict(file_metadata::local_path)
+            .do_update()
+            .set(update_data)
+            .execute(&mut conn)
+            .context("Failed to upsert inventory metadata")
     }
 
     /// Query file metadata by local path
-    pub fn query_by_path(&self, local_path: &str) -> Result<Option<FileMetadata>> {
-        let conn = self.conn.lock().unwrap();
+    pub fn query_by_path(&self, path: &str) -> Result<Option<FileMetadata>> {
+        let mut conn = self.connection()?;
+        let row = file_metadata_dsl::file_metadata
+            .filter(file_metadata_dsl::local_path.eq(path))
+            .first::<FileMetadataRow>(&mut conn)
+            .optional()
+            .context("Failed to query inventory metadata by path")?;
 
-        let result = conn
-            .query_row(
-                r#"
-                SELECT id, drive_id, is_folder, local_path, remote_uri, created_at, updated_at, etag, metadata, props, permissions, shared, size
-                FROM file_metadata
-                WHERE local_path = ?1
-                "#,
-                params![local_path],
-                |row| {
-                    let drive_id_str: String = row.get(1)?;
-                    let is_folder: bool = row.get(2)?;
-                    let metadata_json: String = row.get(8)?;
-                    let props_json: Option<String> = row.get(9)?;
-
-                    Ok(FileMetadata {
-                        id: row.get(0)?,
-                        drive_id: Uuid::parse_str(&drive_id_str).map_err(|e| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                1,
-                                rusqlite::types::Type::Text,
-                                Box::new(e),
-                            )
-                        })?,
-                        is_folder,
-                        local_path: row.get(3)?,
-                        remote_uri: row.get(4)?,
-                        created_at: row.get(5)?,
-                        updated_at: row.get(6)?,
-                        etag: row.get(7)?,
-                        metadata: serde_json::from_str(&metadata_json).map_err(|e| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                7,
-                                rusqlite::types::Type::Text,
-                                Box::new(e),
-                            )
-                        })?,
-                        props: props_json
-                            .map(|s| serde_json::from_str(&s))
-                            .transpose()
-                            .map_err(|e| {
-                                rusqlite::Error::FromSqlConversionFailure(
-                                    8,
-                                    rusqlite::types::Type::Text,
-                                    Box::new(e),
-                                )
-                            })?,
-                        permissions: row.get(10)?,
-                        shared: row.get(11)?,
-                        size: row.get(12)?,
-                    })
-                },
-            )
-            .optional()?;
-
-        Ok(result)
+        row.map(FileMetadata::try_from).transpose()
     }
 
     /// Batch delete file metadata by local path
-    pub fn batch_delete_by_path(&self, local_path: Vec<&str>) -> Result<bool> {
-        // Batch delete items by paths, delete exact matched path, also all path under the given path
-        if local_path.is_empty() {
+    pub fn batch_delete_by_path(&self, paths: Vec<&str>) -> Result<bool> {
+        if paths.is_empty() {
             return Ok(false);
         }
 
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
+        let mut conn = self.connection()?;
+        let affected = (&mut *conn)
+            .transaction::<i64, diesel::result::Error, _>(|tx_conn| {
+                let mut total: i64 = 0;
+                for path in &paths {
+                    total += diesel::delete(
+                        file_metadata_dsl::file_metadata
+                            .filter(file_metadata_dsl::local_path.eq(path)),
+                    )
+                    .execute(tx_conn)? as i64;
 
-        let mut total_affected = 0;
+                    let prefix = format!("{}/%", path);
+                    total += diesel::delete(
+                        file_metadata_dsl::file_metadata
+                            .filter(file_metadata_dsl::local_path.like(&prefix)),
+                    )
+                    .execute(tx_conn)? as i64;
+                }
+                Ok(total)
+            })
+            .context("Failed to batch delete inventory metadata")?;
 
-        for path in local_path {
-            // Delete the exact path
-            let rows_affected = tx.execute(
-                "DELETE FROM file_metadata WHERE local_path = ?1",
-                params![path],
-            )?;
-            total_affected += rows_affected;
-
-            // Delete all paths under this path (children)
-            // Add a path separator to ensure we only match paths that are under this directory
-            let path_prefix = format!("{}/", path);
-            let rows_affected = tx.execute(
-                "DELETE FROM file_metadata WHERE local_path LIKE ?1",
-                params![format!("{}%", path_prefix)],
-            )?;
-            total_affected += rows_affected;
-        }
-
-        tx.commit()?;
-        Ok(total_affected > 0)
+        Ok(affected > 0)
     }
 
     /// Get total count of entries in the database
     pub fn count(&self) -> Result<i64> {
-        let conn = self.conn.lock().unwrap();
-        let count: i64 =
-            conn.query_row("SELECT COUNT(*) FROM file_metadata", [], |row| row.get(0))?;
-
-        Ok(count)
+        let mut conn = self.connection()?;
+        file_metadata_dsl::file_metadata
+            .count()
+            .get_result(&mut conn)
+            .context("Failed to count inventory metadata")
     }
 
     /// Clear all entries from the database
     pub fn clear(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM file_metadata", [])?;
+        let mut conn = self.connection()?;
+        diesel::delete(file_metadata::table)
+            .execute(&mut conn)
+            .context("Failed to clear inventory metadata")?;
         Ok(())
+    }
+}
+
+fn run_migrations(database_url: &str) -> Result<()> {
+    let mut conn = SqliteConnection::establish(database_url)
+        .with_context(|| format!("Failed to open inventory database at {}", database_url))?;
+    conn.run_pending_migrations(MIGRATIONS)
+        .map_err(|err| anyhow!("Failed to run inventory database migrations: {err}"))?;
+    Ok(())
+}
+
+#[derive(Queryable)]
+struct FileMetadataRow {
+    id: i64,
+    drive_id: String,
+    is_folder: bool,
+    local_path: String,
+    remote_uri: String,
+    created_at: i64,
+    updated_at: i64,
+    etag: String,
+    metadata: String,
+    props: Option<String>,
+    permissions: String,
+    shared: bool,
+    size: i64,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = file_metadata)]
+struct NewFileMetadata {
+    drive_id: String,
+    is_folder: bool,
+    local_path: String,
+    remote_uri: String,
+    created_at: i64,
+    updated_at: i64,
+    etag: String,
+    metadata: String,
+    props: Option<String>,
+    permissions: String,
+    shared: bool,
+    size: i64,
+}
+
+#[derive(AsChangeset)]
+#[diesel(table_name = file_metadata)]
+struct FileMetadataChangeset {
+    drive_id: String,
+    is_folder: bool,
+    remote_uri: String,
+    updated_at: i64,
+    etag: String,
+    metadata: String,
+    props: Option<String>,
+    permissions: String,
+    shared: bool,
+    size: i64,
+}
+
+impl TryFrom<FileMetadataRow> for FileMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(row: FileMetadataRow) -> Result<Self> {
+        let metadata_map: HashMap<String, String> =
+            serde_json::from_str(&row.metadata).context("Failed to deserialize metadata column")?;
+        let props_value = match row.props {
+            Some(json) => {
+                Some(serde_json::from_str(&json).context("Failed to deserialize props column")?)
+            }
+            None => None,
+        };
+
+        Ok(FileMetadata {
+            id: row.id,
+            drive_id: Uuid::parse_str(&row.drive_id).context("Failed to parse drive_id column")?,
+            is_folder: row.is_folder,
+            local_path: row.local_path,
+            remote_uri: row.remote_uri,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+            etag: row.etag,
+            metadata: metadata_map,
+            props: props_value,
+            permissions: row.permissions,
+            shared: row.shared,
+            size: row.size,
+        })
+    }
+}
+
+impl TryFrom<&MetadataEntry> for NewFileMetadata {
+    type Error = anyhow::Error;
+
+    fn try_from(entry: &MetadataEntry) -> Result<Self> {
+        Ok(Self {
+            drive_id: entry.drive_id.to_string(),
+            is_folder: entry.is_folder,
+            local_path: entry.local_path.clone(),
+            remote_uri: entry.remote_uri.clone(),
+            created_at: entry.created_at,
+            updated_at: entry.updated_at,
+            etag: entry.etag.clone(),
+            metadata: serde_json::to_string(&entry.metadata)
+                .context("Failed to serialize metadata map")?,
+            props: entry
+                .props
+                .as_ref()
+                .map(|p| serde_json::to_string(p))
+                .transpose()
+                .context("Failed to serialize props field")?,
+            permissions: entry.permissions.clone(),
+            shared: entry.shared,
+            size: entry.size,
+        })
+    }
+}
+
+impl FileMetadataChangeset {
+    fn from_entry(entry: &MetadataEntry, updated_at_ts: i64) -> Result<Self> {
+        Ok(Self {
+            drive_id: entry.drive_id.to_string(),
+            is_folder: entry.is_folder,
+            remote_uri: entry.remote_uri.clone(),
+            updated_at: updated_at_ts,
+            etag: entry.etag.clone(),
+            metadata: serde_json::to_string(&entry.metadata)
+                .context("Failed to serialize metadata map")?,
+            props: entry
+                .props
+                .as_ref()
+                .map(|p| serde_json::to_string(p))
+                .transpose()
+                .context("Failed to serialize props field")?,
+            permissions: entry.permissions.clone(),
+            shared: entry.shared,
+            size: entry.size,
+        })
     }
 }
