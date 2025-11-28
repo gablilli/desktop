@@ -979,13 +979,16 @@ impl Mount {
         let etag_match = inventory
             .map(|entry| entry.etag == remote_etag)
             .unwrap_or(false);
+        let modify_date_match = inventory
+            .and_then(|entry| {
+                local
+                    .last_modified
+                    .and_then(|lm| system_time_to_unix_secs(lm))
+                    .map(|local_secs| entry.updated_at == local_secs)
+            })
+            .unwrap_or(false);
 
-        if etag_match {
-            plan.actions.push(SyncAction::UpdateInventoryFromRemote {
-                path: path.clone(),
-                remote: remote.clone(),
-                invalidate_all: false,
-            });
+        if etag_match && modify_date_match {
             return;
         }
 

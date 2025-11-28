@@ -1,5 +1,6 @@
 use crate::{
     cfapi::{metadata::Metadata, placeholder_file::PlaceholderFile},
+    drive::utils::notify_shell_change,
     inventory::{FileMetadata, InventoryDb, MetadataEntry},
 };
 use anyhow::{Context, Result};
@@ -8,6 +9,10 @@ use cloudreve_api::models::explorer::{FileResponse, file_type};
 use nt_time::FileTime;
 use std::{ffi::OsString, path::PathBuf, sync::Arc};
 use uuid::Uuid;
+use widestring::U16CString;
+use windows::Win32::UI::Shell::{
+    SHCNE_CREATE, SHCNE_DELETE, SHCNE_MKDIR, SHCNF_PATHW, SHChangeNotify,
+};
 
 pub struct CrPlaceholder {
     local_path: PathBuf,
@@ -82,6 +87,17 @@ impl CrPlaceholder {
         inventory
             .upsert(&MetadataEntry::from(file_meta))
             .context("failed to upsert inventory")?;
+
+        // Notify shell change
+        notify_shell_change(
+            &self.local_path,
+            if file_meta.is_folder {
+                SHCNE_CREATE
+            } else {
+                SHCNE_MKDIR
+            },
+        )
+        .context("failed to notify shell change")?;
 
         Ok(())
     }

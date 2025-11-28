@@ -3,6 +3,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use cloudreve_api::models::uri::CrUri;
 use url::Url;
+use widestring::U16CString;
+use windows::Win32::UI::Shell::{SHCNE_ID, SHCNF_PATH, SHCNF_PATHW, SHChangeNotify};
 
 use crate::{drive::mounts::DriveConfig, inventory::FileMetadata};
 
@@ -72,4 +74,18 @@ pub fn view_online_url(
     }
 
     Ok(base.to_string())
+}
+
+// notify_shell_change notify the shell to refresh the file or directory
+pub fn notify_shell_change(path: &PathBuf, event: SHCNE_ID) -> Result<()> {
+    let utf16_path = U16CString::from_os_str(path.as_path())?;
+    unsafe {
+        SHChangeNotify(
+            event,
+            SHCNF_PATHW,
+            Some(utf16_path.as_ptr() as *const _),
+            None,
+        );
+    }
+    Ok(())
 }
