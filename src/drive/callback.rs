@@ -84,9 +84,25 @@ impl SyncFilter for CallbackHandler {
         let src = request.path();
         let dest = info.target_path();
         tracing::debug!(target: "drive::mounts", id = %self.id, source_path = %src.display(), target_path = %dest.display(), "Rename");
+        let (response_tx, response_rx) = tokio::sync::oneshot::channel();
+        let command = MountCommand::Rename {
+            source: src.to_path_buf(),
+            target: dest.to_path_buf(),
+            response: response_tx,
+        };
+        if let Err(e) = self.command_tx.send(command) {
+            tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to send rename command");
+            return Err(CloudErrorKind::NotSupported);
+        }
+
+        match response_rx.blocking_recv() {
+            Ok(Ok(())) => {
+                ticket.pass();
+                Ok(())
+            }
+            _ => Err(CloudErrorKind::Unsuccessful),
+        }
         // TODO: delete sometimes trigger rename callback
-        ticket.pass();
-        Ok(())
     }
 
     fn fetch_placeholders(

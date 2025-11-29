@@ -13,7 +13,10 @@ use cloudreve_api::{
     ApiError,
     api::{ExplorerApi, explorer::ExplorerApiExt},
     models::{
-        explorer::{DeleteFileService, FileResponse, FileURLService, metadata},
+        explorer::{
+            DeleteFileService, FileResponse, FileURLService, MoveFileService, RenameFileService,
+            metadata,
+        },
         uri::CrUri,
         user::Token,
     },
@@ -61,6 +64,11 @@ pub enum MountCommand {
     Sync {
         local_paths: Vec<PathBuf>,
         mode: SyncMode,
+    },
+    Rename {
+        source: PathBuf,
+        target: PathBuf,
+        response: Sender<Result<()>>,
     },
 }
 
@@ -276,6 +284,82 @@ impl Mount {
             ));
         }
         Ok(thumb_response.bytes().await?)
+    }
+
+    pub async fn rename(&self, source: PathBuf, target: PathBuf) -> Result<()> {
+        let (sync_path, remote_path) = {
+            let config = self.config.read().await;
+            (config.sync_path.clone(), config.remote_path.to_string())
+        };
+
+        // if target or source is not under sync root, do nothing
+        if !target.starts_with(&sync_path) {
+            // TODO: add src to event blocker
+            // TODO: remove tasks related to src
+            // TODO: verify if fs event is actually triggered in this case
+            return Ok(());
+        }
+        if !source.starts_with(&sync_path) {
+            // TODO: add target to event blocker
+            return Ok(());
+        }
+
+        // if target and src under the same dir, trigger rename call
+        let target_parent = target.parent().context("root cannot be moved")?;
+        let source_parent = source.parent().context("root cannot be moved")?;
+        if target_parent == source_parent {
+            match self
+                .cr_client
+                .rename_file(&RenameFileService {
+                    uri: local_path_to_cr_uri(source.clone(), sync_path, remote_path)?.to_string(),
+                    new_name: target
+                        .file_name()
+                        .context("target cannot be moved")?
+                        .to_string_lossy()
+                        .to_string(),
+                })
+                .await
+            {
+                Ok(_) => {
+                    // TODO: remove tasks related to src
+                    // TODO: add modifyName(target,src) to event blocker
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::error!(target: "drive::commands", error = %e, "Failed to rename file");
+                    return Err(e.into());
+                }
+            }
+        }
+
+        // Process move call
+        match self
+            .cr_client
+            .move_files(&MoveFileService {
+                uris: vec![
+                    local_path_to_cr_uri(source.clone(), sync_path.clone(), remote_path.clone())?
+                        .to_string(),
+                ],
+                dst: local_path_to_cr_uri(
+                    source_parent.to_path_buf(),
+                    sync_path.clone(),
+                    remote_path.clone(),
+                )?
+                .to_string(),
+                copy: None,
+            })
+            .await
+        {
+            Ok(_) => {
+                // TODO: remove tasks related to src
+                // TODO: add removee(src), create(target) to event blocker
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::error!(target: "drive::commands", error = %e, "Failed to move file");
+                return Err(e.into());
+            }
+        }
     }
 
     pub async fn process_fs_events(&self, events: GroupedFsEvents) -> Result<()> {

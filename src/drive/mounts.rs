@@ -290,6 +290,24 @@ impl Mount {
             tracing::trace!(target: "drive::mounts", id = %mount_id, command = ?command, "Processing command");
 
             match command {
+                MountCommand::Rename {
+                    source,
+                    target,
+                    response,
+                } => {
+                    let s_clone = s.clone();
+                    let mount_id_clone = mount_id.clone();
+                    spawn(async move {
+                        let result = s_clone.rename(source, target).await;
+                        if let Err(e) = result {
+                            tracing::error!(target: "drive::mounts", id = %mount_id_clone, error = %e, "Failed to rename");
+                            let _ = response.send(Err(e));
+                            return;
+                        }
+                        tracing::debug!(target: "drive::mounts", id = %mount_id_clone, result = ?result, "Renamed");
+                        let _ = response.send(result);
+                    });
+                }
                 MountCommand::Sync { mode, local_paths } => {
                     let s_clone = s.clone();
                     let mount_id_clone = mount_id.clone();
