@@ -117,9 +117,16 @@ impl Mount {
                 })
         }));
 
+        let cr_client_arc = Arc::new(cr_client);
         let id = config.id.clone();
         let queue_config = resolve_task_queue_config(&config);
-        let task_queue = TaskQueue::new(id.clone(), inventory.clone(), queue_config).await;
+        let task_queue = TaskQueue::new(
+            id.clone(),
+            cr_client_arc.clone(),
+            inventory.clone(),
+            queue_config,
+        )
+        .await;
 
         Self {
             config: Arc::new(RwLock::new(config)),
@@ -127,7 +134,7 @@ impl Mount {
             command_tx,
             command_rx: Arc::new(tokio::sync::Mutex::new(Some(command_rx))),
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
-            cr_client: Arc::new(cr_client),
+            cr_client: cr_client_arc,
             inventory: inventory,
             task_queue,
             status: Arc::new(RwLock::new(MountStatus::InSync)),
@@ -437,16 +444,7 @@ fn resolve_task_queue_config(config: &DriveConfig) -> TaskQueueConfig {
         .filter(|value| *value > 0)
         .unwrap_or(2);
 
-    let buffer_capacity = config
-        .extra
-        .get("task_queue_buffer_capacity")
-        .and_then(|value| value.as_u64())
-        .map(|value| value as usize)
-        .filter(|value| *value > 0)
-        .unwrap_or(concurrency * 8);
-
     TaskQueueConfig {
         max_concurrent: concurrency,
-        buffer_capacity,
     }
 }

@@ -1,12 +1,17 @@
 use crate::inventory::{InventoryDb, NewTaskRecord, TaskRecord, TaskStatus, TaskUpdate};
 use crate::tasks::types::{TaskKind, TaskPayload, TaskProgress};
+use crate::tasks::upload::UploadTask;
 use anyhow::{Context, Result, anyhow};
+use cloudreve_api::Client;
 use dashmap::DashMap;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use tokio::sync::{Mutex, Notify, Semaphore, mpsc};
+use tokio::sync::{
+    Mutex, Notify, Semaphore,
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
@@ -17,24 +22,21 @@ const PLACEHOLDER_STEPS: u32 = 500;
 #[derive(Debug, Clone)]
 pub struct TaskQueueConfig {
     pub max_concurrent: usize,
-    pub buffer_capacity: usize,
 }
 
 impl Default for TaskQueueConfig {
     fn default() -> Self {
-        Self {
-            max_concurrent: 2,
-            buffer_capacity: 64,
-        }
+        Self { max_concurrent: 2 }
     }
 }
 
 pub struct TaskQueue {
-    drive_id: String,
-    inventory: Arc<InventoryDb>,
+    pub drive_id: String,
+    pub cr_client: Arc<Client>,
+    pub inventory: Arc<InventoryDb>,
     config: TaskQueueConfig,
     semaphore: Arc<Semaphore>,
-    command_tx: mpsc::Sender<QueueCommand>,
+    command_tx: UnboundedSender<QueueCommand>,
     dispatcher_handle: Mutex<Option<JoinHandle<()>>>,
     inflight: AtomicUsize,
     idle_notify: Notify,
@@ -47,21 +49,19 @@ pub struct TaskQueue {
 impl TaskQueue {
     pub async fn new(
         drive_id: impl Into<String>,
+        cr_client: Arc<Client>,
         inventory: Arc<InventoryDb>,
         config: TaskQueueConfig,
     ) -> Arc<Self> {
         let drive_id = drive_id.into();
         let max_concurrent = config.max_concurrent.max(1);
-        let buffer_capacity = config.buffer_capacity.max(max_concurrent * 2).max(8);
-        let sanitized_config = TaskQueueConfig {
-            max_concurrent,
-            buffer_capacity,
-        };
+        let sanitized_config = TaskQueueConfig { max_concurrent };
 
-        let (command_tx, command_rx) = mpsc::channel(sanitized_config.buffer_capacity);
+        let (command_tx, command_rx) = mpsc::unbounded_channel();
         let queue = Arc::new(Self {
             drive_id,
             inventory,
+            cr_client,
             config: sanitized_config,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
             command_tx,
@@ -138,7 +138,7 @@ impl TaskQueue {
             .with_context(|| format!("Failed to persist task {}", task_id))?;
 
         let payload = payload.with_task_id(task_id.clone());
-        self.dispatch_task(task_id.clone(), payload).await?;
+        self.dispatch_task(task_id.clone(), payload)?;
         Ok(task_id)
     }
 
@@ -156,11 +156,10 @@ impl TaskQueue {
             .collect()
     }
 
-    async fn dispatch_task(&self, task_id: String, payload: TaskPayload) -> Result<()> {
+    fn dispatch_task(&self, task_id: String, payload: TaskPayload) -> Result<()> {
         let command = QueueCommand::Enqueue(QueuedTask { task_id, payload });
         self.command_tx
             .send(command)
-            .await
             .context("Task dispatcher closed")?;
         Ok(())
     }
@@ -189,7 +188,7 @@ impl TaskQueue {
 
         self.cancel_requested.store(true, Ordering::SeqCst);
 
-        if let Err(err) = self.command_tx.send(QueueCommand::Shutdown).await {
+        if let Err(err) = self.command_tx.send(QueueCommand::Shutdown) {
             warn!(target: "tasks::queue", error = %err, "Task queue dispatcher already closed");
         }
 
@@ -202,7 +201,7 @@ impl TaskQueue {
         self.progress.clear();
     }
 
-    async fn spawn_dispatcher(self: &Arc<Self>, command_rx: mpsc::Receiver<QueueCommand>) {
+    async fn spawn_dispatcher(self: &Arc<Self>, command_rx: UnboundedReceiver<QueueCommand>) {
         let queue = Arc::clone(self);
         let handle = tokio::spawn(async move {
             queue.run_dispatch_loop(command_rx).await;
@@ -210,7 +209,7 @@ impl TaskQueue {
         *self.dispatcher_handle.lock().await = Some(handle);
     }
 
-    async fn run_dispatch_loop(self: Arc<Self>, mut command_rx: mpsc::Receiver<QueueCommand>) {
+    async fn run_dispatch_loop(self: Arc<Self>, mut command_rx: UnboundedReceiver<QueueCommand>) {
         info!(
             target: "tasks::queue",
             drive = %self.drive_id,
@@ -349,7 +348,7 @@ impl TaskQueue {
                     target: "tasks::queue",
                     drive = %self.drive_id,
                     task_id = %task.task_id,
-                    error = %err,
+                    error = ?err,
                     "Task execution failed"
                 );
                 if let Err(update_err) = self.inventory.update_task(
@@ -383,44 +382,58 @@ impl TaskQueue {
             task_id = %task.task_id,
             kind = task.payload.kind.as_str(),
             path = %task.payload.local_path_display(),
-            "Executing placeholder task"
+            "Executing task"
         );
 
-        for step in 0..PLACEHOLDER_STEPS {
-            if self.cancel_requested.load(Ordering::SeqCst) {
-                return Ok(TaskRunState::Cancelled);
-            }
-            sleep(Duration::from_millis(250)).await;
-            let progress = (step + 1) as f64 / PLACEHOLDER_STEPS as f64;
-            let direction = match task.payload.kind {
-                TaskKind::Upload => "upload",
-                TaskKind::Download => "download",
-            };
-            let state = json!({
-                "step": step + 1,
-                "total_steps": PLACEHOLDER_STEPS,
-                "local_path": task.payload.local_path_display(),
-                "kind": direction,
-            });
-            if let Err(err) = self
-                .persist_progress(
-                    &task.task_id,
-                    progress,
-                    task.payload.processed_bytes,
-                    task.payload.total_bytes,
-                    Some(state),
-                )
-                .await
-            {
-                warn!(
-                    target: "tasks::queue",
-                    drive = %self.drive_id,
-                    task_id = %task.task_id,
-                    error = %err,
-                    "Failed to persist placeholder progress"
+        match &task.payload.kind {
+            TaskKind::Upload => {
+                let mut task_executor = UploadTask::new(
+                    self.inventory.clone(),
+                    self.cr_client.clone(),
+                    self.drive_id.as_str(),
+                    &task,
                 );
+
+                task_executor.execute().await?;
             }
+            TaskKind::Download => todo!(),
         }
+
+        // for step in 0..PLACEHOLDER_STEPS {
+        //     if self.cancel_requested.load(Ordering::SeqCst) {
+        //         return Ok(TaskRunState::Cancelled);
+        //     }
+        //     sleep(Duration::from_millis(250)).await;
+        //     let progress = (step + 1) as f64 / PLACEHOLDER_STEPS as f64;
+        //     let direction = match task.payload.kind {
+        //         TaskKind::Upload => "upload",
+        //         TaskKind::Download => "download",
+        //     };
+        //     let state = json!({
+        //         "step": step + 1,
+        //         "total_steps": PLACEHOLDER_STEPS,
+        //         "local_path": task.payload.local_path_display(),
+        //         "kind": direction,
+        //     });
+        //     if let Err(err) = self
+        //         .persist_progress(
+        //             &task.task_id,
+        //             progress,
+        //             task.payload.processed_bytes,
+        //             task.payload.total_bytes,
+        //             Some(state),
+        //         )
+        //         .await
+        //     {
+        //         warn!(
+        //             target: "tasks::queue",
+        //             drive = %self.drive_id,
+        //             task_id = %task.task_id,
+        //             error = %err,
+        //             "Failed to persist placeholder progress"
+        //         );
+        //     }
+        // }
 
         Ok(TaskRunState::Completed)
     }
@@ -466,7 +479,7 @@ impl TaskQueue {
                         target: "tasks::queue",
                         drive = %self.drive_id,
                         task_id = %record.id,
-                        error = %err,
+                        error = ?err,
                         "Failed to reset task status during resume"
                     );
                     continue;
@@ -487,12 +500,12 @@ impl TaskQueue {
                 }
             };
 
-            if let Err(err) = self.dispatch_task(record.id.clone(), payload).await {
+            if let Err(err) = self.dispatch_task(record.id.clone(), payload) {
                 warn!(
                     target: "tasks::queue",
                     drive = %self.drive_id,
                     task_id = %record.id,
-                    error = %err,
+                    error = ?err,
                     "Failed to dispatch resumed task"
                 );
                 continue;
@@ -565,7 +578,7 @@ enum QueueCommand {
     Shutdown,
 }
 
-struct QueuedTask {
-    task_id: String,
-    payload: TaskPayload,
+pub struct QueuedTask {
+    pub task_id: String,
+    pub payload: TaskPayload,
 }
