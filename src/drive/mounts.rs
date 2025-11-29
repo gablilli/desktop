@@ -5,6 +5,7 @@ use crate::cfapi::root::{
 use crate::drive::callback::CallbackHandler;
 use crate::drive::commands::ManagerCommand;
 use crate::drive::commands::MountCommand;
+use crate::drive::event_blocker::EventBlocker;
 use crate::drive::sync::group_fs_events;
 use crate::inventory::{InventoryDb, TaskRecord};
 use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
@@ -76,6 +77,7 @@ pub struct Mount {
     pub inventory: Arc<InventoryDb>,
     pub task_queue: Arc<TaskQueue>,
     pub id: String,
+    pub event_blocker: EventBlocker,
 }
 
 impl Mount {
@@ -142,6 +144,7 @@ impl Mount {
             manager_command_tx,
             fs_watcher: Mutex::new(None),
             sync_lock: Mutex::new(()),
+            event_blocker: EventBlocker::new(),
         }
     }
 
@@ -242,7 +245,6 @@ impl Mount {
             None,
             move |result: DebounceEventResult| match result {
                 Ok(events) => {
-                    tracing::debug!(target: "drive::mounts", events = ?events, "FS watcher events");
                     let grouped_events = group_fs_events(events);
                     let command = MountCommand::ProcessFsEvents {
                         events: grouped_events,
@@ -365,7 +367,6 @@ impl Mount {
                     });
                 }
                 MountCommand::ProcessFsEvents { events } => {
-                    tracing::debug!(target: "drive::mounts", id = %mount_id, events = ?events, "Processing FS events");
                     let s_clone = s.clone();
                     let mount_id_clone = mount_id.clone();
                     spawn(async move {

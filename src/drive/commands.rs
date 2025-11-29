@@ -21,7 +21,10 @@ use cloudreve_api::{
         user::Token,
     },
 };
-use notify_debouncer_full::notify::{Event, EventKind};
+use notify_debouncer_full::notify::{
+    Event, EventKind,
+    event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
+};
 use std::{
     collections::HashMap,
     ops::Range,
@@ -294,13 +297,16 @@ impl Mount {
 
         // if target or source is not under sync root, do nothing
         if !target.starts_with(&sync_path) {
-            // TODO: add src to event blocker
+            // Source is being moved out of sync root - block the remove event
+            self.event_blocker
+                .register_once(&EventKind::Remove(RemoveKind::Any), source.clone());
             // TODO: remove tasks related to src
-            // TODO: verify if fs event is actually triggered in this case
             return Ok(());
         }
         if !source.starts_with(&sync_path) {
-            // TODO: add target to event blocker
+            // Target is being moved into sync root - block the create event
+            self.event_blocker
+                .register_once(&EventKind::Create(CreateKind::Any), target.clone());
             return Ok(());
         }
 
@@ -321,8 +327,16 @@ impl Mount {
                 .await
             {
                 Ok(_) => {
+                    // Block the modify name events for rename (From for source, To for target)
+                    self.event_blocker.register_once(
+                        &EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+                        source.clone(),
+                    );
+                    self.event_blocker.register_once(
+                        &EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+                        target.clone(),
+                    );
                     // TODO: remove tasks related to src
-                    // TODO: add modifyName(target,src) to event blocker
                     return Ok(());
                 }
                 Err(e) => {
@@ -351,8 +365,12 @@ impl Mount {
             .await
         {
             Ok(_) => {
+                // Block remove event for source and create event for target
+                self.event_blocker
+                    .register_once(&EventKind::Remove(RemoveKind::Any), source.clone());
+                self.event_blocker
+                    .register_once(&EventKind::Create(CreateKind::Any), target.clone());
                 // TODO: remove tasks related to src
-                // TODO: add removee(src), create(target) to event blocker
                 return Ok(());
             }
             Err(e) => {
@@ -363,11 +381,17 @@ impl Mount {
     }
 
     pub async fn process_fs_events(&self, events: GroupedFsEvents) -> Result<()> {
-        tracing::debug!(target: "drive::commands", events = ?events, "Processing FS events");
         for (event_kind, events) in events {
+            // Filter out events that were pre-registered by rename operations
+            let filtered_events = self.event_blocker.filter_events(events, &event_kind);
+
+            if filtered_events.is_empty() {
+                continue;
+            }
+
             match event_kind {
-                EventKind::Remove(_) => self.process_fs_delete_events(events).await?,
-                EventKind::Create(_) => self.process_fs_create_events(events).await?,
+                EventKind::Remove(_) => self.process_fs_delete_events(filtered_events).await?,
+                EventKind::Create(_) => self.process_fs_create_events(filtered_events).await?,
                 _ => (),
             }
         }
@@ -378,6 +402,7 @@ impl Mount {
         tracing::debug!(
             target: "drive::commands",
             event_count = events.len(),
+            events = ?events,
             "Processing filesystem create events"
         );
 
@@ -418,6 +443,7 @@ impl Mount {
         tracing::debug!(
             target: "drive::commands",
             event_count = events.len(),
+            events = ?events,
             "Processing filesystem delete events"
         );
 
