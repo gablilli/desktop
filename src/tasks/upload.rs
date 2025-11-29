@@ -99,6 +99,9 @@ impl<'a> UploadTask<'a> {
             self.create_empty_file_or_folder().await?;
         }
 
+        // sleep 20 S
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
         Ok(())
     }
 

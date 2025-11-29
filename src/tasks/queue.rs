@@ -238,7 +238,8 @@ impl TaskQueue {
             .iter()
             .filter(|entry| {
                 let task_path = entry.value();
-                task_path == &path_str || task_path.starts_with(&format!("{}/", path_str))
+                task_path == &path_str
+                    || task_path.starts_with(&format!("{}{}", path_str, std::path::MAIN_SEPARATOR))
             })
             .map(|entry| entry.key().clone())
             .collect();

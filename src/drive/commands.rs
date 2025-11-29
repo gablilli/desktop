@@ -314,12 +314,15 @@ impl Mount {
         match self.task_queue.cancel_by_path(source.clone()).await {
             Ok(0) => {
                 // Mark file as in-sync
-                match OpenOptions::new().write_access().exclusive().open(&source) {
+                tracing::trace!(target: "drive::commands", path = %destination.display(), "Marking file as in-sync: OPEN");
+                match OpenOptions::new().write_access().exclusive().open(&destination) {
                     Ok(mut handle) => {
+                        tracing::trace!(target: "drive::commands", path = %destination.display(), "Marking file as in-sync");
                         if let Err(e) = handle.mark_in_sync(true, None) {
                             tracing::error!(target: "drive::commands", error = %e, "Failed to mark as in-sync");
                             return Err(e.into());
                         }
+                        tracing::trace!(target: "drive::commands", path = %destination.display(), "Marked file as in-sync: complete");
                         Ok(())
                     }
                     Err(e) => {

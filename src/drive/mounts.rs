@@ -383,7 +383,7 @@ impl Mount {
                     let mount_id_clone = mount_id.clone();
                     spawn(async move {
                         if let Err(e) = s_clone.rename_completed(source, destination).await {
-                            tracing::error!(target: "drive::mounts", id = %mount_id_clone, error = %e, "Failed to rename completed");
+                            tracing::error!(target: "drive::mounts", id = %mount_id_clone, error = ?e, "Failed to rename completed");
                             return;
                         }
                     });

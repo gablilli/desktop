@@ -1,8 +1,9 @@
 use super::{FileMetadata, MetadataEntry, NewTaskRecord, TaskRecord, TaskStatus, TaskUpdate};
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use diesel::OptionalExtension;
 use diesel::prelude::*;
+use diesel::sql_types::{BigInt, Text};
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
@@ -273,7 +274,7 @@ impl InventoryDb {
         let mut conn = self.connection()?;
 
         // Find tasks that match the exact path or are descendants (path starts with "path/")
-        let prefix = format!("{}/", path);
+        let prefix = format!("{}{}", path, std::path::MAIN_SEPARATOR);
         let active_statuses = vec![
             TaskStatus::Pending.as_str().to_string(),
             TaskStatus::Running.as_str().to_string(),
@@ -336,98 +337,41 @@ impl InventoryDb {
 
         let mut conn = self.connection()?;
         let now = Utc::now().timestamp();
-        let old_prefix = format!("{}/", old_path);
-        let new_prefix = format!("{}/", new_path);
-        let old_prefix_len = old_prefix.len() as i32;
+        let old_prefix = format!("{}{}", old_path, std::path::MAIN_SEPARATOR);
+        let new_prefix = format!("{}{}", new_path, std::path::MAIN_SEPARATOR);
+        let descendant_like = format!("{}%", old_prefix);
 
         let total = (&mut *conn)
             .transaction::<usize, diesel::result::Error, _>(|tx_conn| {
-                // Update the exact path match (the item itself)
-                let exact_match = diesel::sql_query(
-                    "UPDATE file_metadata SET local_path = ?1, updated_at = ?2 \
-                     WHERE local_path = ?3",
+                let exact = diesel::update(
+                    file_metadata_dsl::file_metadata
+                        .filter(file_metadata_dsl::local_path.eq(old_path)),
                 )
-                .bind::<diesel::sql_types::Text, _>(new_path)
-                .bind::<diesel::sql_types::BigInt, _>(now)
-                .bind::<diesel::sql_types::Text, _>(old_path)
+                .set((
+                    file_metadata_dsl::local_path.eq(new_path),
+                    file_metadata_dsl::updated_at.eq(now),
+                ))
                 .execute(tx_conn)?;
 
-                // Update descendants: replace only the prefix portion
-                // new_prefix || substr(local_path, old_prefix_len + 1)
-                // This safely replaces just the beginning of the path
                 let descendants = diesel::sql_query(
-                    "UPDATE file_metadata SET local_path = ?1 || substr(local_path, ?2), updated_at = ?3 \
-                     WHERE local_path LIKE ?4",
+                    "UPDATE file_metadata \
+                     SET local_path = ? || substr(local_path, length(?) + 1), updated_at = ? \
+                     WHERE local_path LIKE ?",
                 )
-                .bind::<diesel::sql_types::Text, _>(&new_prefix)
-                .bind::<diesel::sql_types::Integer, _>(old_prefix_len + 1)
-                .bind::<diesel::sql_types::BigInt, _>(now)
-                .bind::<diesel::sql_types::Text, _>(format!("{}%", old_prefix))
+                .bind::<Text, _>(&new_prefix)
+                .bind::<Text, _>(&old_prefix)
+                .bind::<BigInt, _>(now)
+                .bind::<Text, _>(&descendant_like)
                 .execute(tx_conn)?;
 
-                Ok(exact_match + descendants)
+                Ok(exact + descendants)
             })
-            .context("Failed to rename path in inventory")?;
+            .context("Failed to rename metadata path")?;
 
         Ok(total)
     }
 
-    /// Rename or move multiple file/folder paths and their descendants in a single transaction.
-    /// Each entry in the `renames` slice is a tuple of (old_path, new_path).
-    /// Only replaces the prefix portion to avoid issues with duplicate path segments.
-    ///
-    /// Returns the total number of rows updated.
-    pub fn batch_rename_paths(&self, renames: &[(&str, &str)]) -> Result<usize> {
-        if renames.is_empty() {
-            return Ok(0);
-        }
 
-        let mut conn = self.connection()?;
-        let now = Utc::now().timestamp();
-
-        let total = (&mut *conn)
-            .transaction::<usize, diesel::result::Error, _>(|tx_conn| {
-                let mut total_affected: usize = 0;
-
-                for (old_path, new_path) in renames {
-                    if old_path == new_path {
-                        continue;
-                    }
-
-                    let old_prefix = format!("{}/", old_path);
-                    let new_prefix = format!("{}/", new_path);
-                    let old_prefix_len = old_prefix.len() as i32;
-
-                    // Update the exact path match
-                    let exact_match = diesel::sql_query(
-                        "UPDATE file_metadata SET local_path = ?1, updated_at = ?2 \
-                         WHERE local_path = ?3",
-                    )
-                    .bind::<diesel::sql_types::Text, _>(*new_path)
-                    .bind::<diesel::sql_types::BigInt, _>(now)
-                    .bind::<diesel::sql_types::Text, _>(*old_path)
-                    .execute(tx_conn)?;
-
-                    // Update descendants: replace only the prefix portion
-                    let descendants = diesel::sql_query(
-                        "UPDATE file_metadata SET local_path = ?1 || substr(local_path, ?2), updated_at = ?3 \
-                         WHERE local_path LIKE ?4",
-                    )
-                    .bind::<diesel::sql_types::Text, _>(&new_prefix)
-                    .bind::<diesel::sql_types::Integer, _>(old_prefix_len + 1)
-                    .bind::<diesel::sql_types::BigInt, _>(now)
-                    .bind::<diesel::sql_types::Text, _>(format!("{}%", old_prefix))
-                    .execute(tx_conn)?;
-
-                    total_affected += exact_match + descendants;
-                }
-
-                Ok(total_affected)
-            })
-            .context("Failed to batch rename paths in inventory")?;
-
-        Ok(total)
-    }
 }
 
 fn run_migrations(database_url: &str) -> Result<()> {
