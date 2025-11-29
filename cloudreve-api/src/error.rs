@@ -16,6 +16,25 @@ pub struct ApiResponse<T> {
     pub aggregated_error: Option<HashMap<String, ApiResponse<T>>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockConflictDetail {
+    pub path: String,
+    #[serde(rename = "type")]
+    pub lock_type: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockOwner {
+    pub owner: String,
+    pub application: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LockApplication {
+    #[serde(rename = "type")]
+    pub application_type: String,
+}
+
 /// Error codes used by the Cloudreve API
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
@@ -70,8 +89,11 @@ pub enum ApiError {
     },
 
     /// Lock conflict error (40073)
-    #[error("Lock conflict: {0}")]
-    LockConflict(String),
+    #[error("Lock conflict: {message}")]
+    LockConflict {
+        message: String,
+        detail: Option<LockConflictDetail>,
+    },
 
     /// Batch operation not fully completed (40081)
     #[error("Batch operation not fully completed: {message}")]
@@ -120,7 +142,10 @@ impl ApiError {
 
         // Handle specific error codes
         match ErrorCode::from_code(code) {
-            Some(ErrorCode::LockConflict) => ApiError::LockConflict(response.msg),
+            Some(ErrorCode::LockConflict) => ApiError::LockConflict {
+                message: response.msg,
+                detail: None, // Will be populated by the client when parsing raw response
+            },
             Some(ErrorCode::BatchOperationNotFullyCompleted) => {
                 let aggregated = response
                     .aggregated_error

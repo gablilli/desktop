@@ -1,4 +1,4 @@
-use crate::error::{ApiError, ApiResponse, ApiResult, ErrorCode};
+use crate::error::{ApiError, ApiResponse, ApiResult, ErrorCode, LockConflictDetail};
 use crate::models::user::{RefreshTokenRequest, Token};
 use chrono::{DateTime, Duration, Utc};
 use reqwest::{Client as HttpClient, Method};
@@ -315,7 +315,31 @@ impl Client {
 
         // Execute request
         let response = request.send().await?;
-        let api_response: ApiResponse<R> = response.json().await?;
+        let response_text = response.text().await?;
+
+        // First parse as a generic Value to check the error code
+        let raw_value: serde_json::Value = serde_json::from_str(&response_text)?;
+
+        let code = raw_value.get("code").and_then(|c| c.as_i64()).unwrap_or(0) as i32;
+
+        // Handle lock conflict specially - data contains LockConflictDetail
+        if code == ErrorCode::LockConflict as i32 {
+            let msg = raw_value
+                .get("msg")
+                .and_then(|m| m.as_str())
+                .unwrap_or("")
+                .to_string();
+            let detail: Option<LockConflictDetail> = raw_value
+                .get("data")
+                .and_then(|d| serde_json::from_value(d.clone()).ok());
+            return Err(ApiError::LockConflict {
+                message: msg,
+                detail,
+            });
+        }
+
+        // Parse as the expected response type
+        let api_response: ApiResponse<R> = serde_json::from_str(&response_text)?;
 
         // Check response code
         if api_response.code != ErrorCode::Success as i32 {

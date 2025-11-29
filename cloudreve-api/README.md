@@ -126,9 +126,12 @@ match client.list_files(&params).await {
         // Need to login again
         println!("Login required: {}", msg);
     }
-    Err(ApiError::LockConflict(msg)) => {
+    Err(ApiError::LockConflict { message, detail }) => {
         // File is locked by another user/application
-        println!("Lock conflict: {}", msg);
+        println!("Lock conflict: {}", message);
+        if let Some(d) = detail {
+            println!("  Path: {}, Type: {}", d.path, d.lock_type);
+        }
     }
     Err(ApiError::BatchError { message, aggregated_errors }) => {
         // Some operations in batch failed
