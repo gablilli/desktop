@@ -1,5 +1,9 @@
 use crate::{
-    cfapi::{metadata::Metadata, placeholder::LocalFileInfo, placeholder_file::PlaceholderFile},
+    cfapi::{
+        metadata::Metadata,
+        placeholder::{LocalFileInfo, PinState},
+        placeholder_file::PlaceholderFile,
+    },
     drive::{
         mounts::Mount,
         placeholder::CrPlaceholder,
@@ -1004,9 +1008,9 @@ impl Mount {
         plan.actions.push(SyncAction::UpdateInventoryFromRemote {
             path: path.clone(),
             remote: remote.clone(),
-            invalidate_all: local.pinned(),
+            invalidate_all: pinned == PinState::Pinned,
         });
-        if pinned {
+        if pinned == PinState::Pinned {
             plan.actions.push(SyncAction::QueueDownload {
                 path: path.clone(),
                 remote: remote.clone(),

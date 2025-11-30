@@ -505,7 +505,7 @@ impl Mount {
             "Processing filesystem modify events"
         );
 
-        for (remote_uri, path) in path_uri_mappings {
+        for (_, path) in path_uri_mappings {
             let placeholder_info = match LocalFileInfo::from_path(path.as_path()) {
                 Ok(info) => info,
                 Err(e) => {
@@ -531,6 +531,7 @@ impl Mount {
                     tracing::error!(target: "drive::commands", path = %path.display(), error = %e, "Failed to hydrate placeholder");
                     continue;
                 }
+                tracing::trace!(target: "drive::commands", path = %path.display(), "Hydration complete");
                 continue;
             }
 
