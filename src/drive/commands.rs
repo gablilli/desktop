@@ -351,9 +351,9 @@ impl Mount {
 
         // if target or source is not under sync root, do nothing
         if !target.starts_with(&sync_path) {
-            // Source is being moved out of sync root - block the remove event
-            self.event_blocker
-                .register_once(&EventKind::Remove(RemoveKind::Any), source.clone());
+            // Source is being moved out of sync root
+            //self.event_blocker
+            //    .register_once(&EventKind::Remove(RemoveKind::Any), source.clone());
             return Ok(());
         }
         if !source.starts_with(&sync_path) {

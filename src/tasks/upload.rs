@@ -57,6 +57,7 @@ impl<'a> UploadTask<'a> {
     }
     // Upload a local file/folder to cloud
     pub async fn execute(&mut self) -> Result<()> {
+                
         // Get local file info
         let local_file = LocalFileInfo::from_path(&self.task.payload.local_path)
             .context("failed to get local file info")?;
@@ -98,9 +99,6 @@ impl<'a> UploadTask<'a> {
         if is_directory || self.local_file.as_ref().unwrap().file_size.unwrap_or(0) == 0_u64 {
             self.create_empty_file_or_folder().await?;
         }
-
-        // sleep 20 S
-        tokio::time::sleep(Duration::from_secs(20)).await;
 
         Ok(())
     }
