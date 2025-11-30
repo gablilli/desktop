@@ -198,10 +198,6 @@ enum SyncAction {
         remote: FileResponse,
         invalidate_all: bool,
     },
-    ConvertLocalToPlaceholder {
-        path: PathBuf,
-        remote: FileResponse,
-    },
     QueueUpload {
         path: PathBuf,
         reason: UploadReason,
@@ -560,7 +556,7 @@ impl Mount {
                         target: "drive::sync",
                         id = %self.id,
                         path = %path.display(),
-                        error = %err,
+                        error = ?err,
                         "Failed to create placeholder and inventory"
                     );
                     aggregate_error.push(path.clone(), err);
@@ -570,15 +566,23 @@ impl Mount {
                 path,
                 remote,
                 invalidate_all,
-            } => {}
-            SyncAction::ConvertLocalToPlaceholder { path, remote: _ } => {
-                tracing::warn!(
-                    target: "drive::sync",
-                    id = %self.id,
-                    path = %path.display(),
-                    "ConvertLocalToPlaceholder not yet implemented"
-                );
-                // TODO: Implement conversion of local file to placeholder
+            } => {
+                let cr_placeholder =
+                    CrPlaceholder::new(path.clone(), sync_root.clone(), drive_id.clone());
+                if let Err(err) = cr_placeholder
+                    .with_invalidate_all_range(*invalidate_all)
+                    .with_remote_file(remote)
+                    .commit(self.inventory.clone())
+                {
+                    tracing::error!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        error = ?err,
+                        "Failed to update inventory from remote"
+                    );
+                    aggregate_error.push(path.clone(), err);
+                }
             }
             SyncAction::QueueUpload { path, reason } => {
                 tracing::info!(
@@ -588,6 +592,21 @@ impl Mount {
                     reason = ?reason,
                     "Queueing upload task"
                 );
+
+                if let Err(err) = self
+                    .task_queue
+                    .enqueue(TaskPayload::upload(path.clone()))
+                    .await
+                {
+                    tracing::error!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        error = ?err,
+                        "Failed to enqueue upload task"
+                    );
+                    aggregate_error.push(path.clone(), anyhow::Error::from(err));
+                }
             }
             SyncAction::QueueDownload { path, remote } => {
                 tracing::info!(
@@ -596,6 +615,20 @@ impl Mount {
                     path = %path.display(),
                     "Queueing download task"
                 );
+                if let Err(err) = self
+                    .task_queue
+                    .enqueue(TaskPayload::download(path.clone()))
+                    .await
+                {
+                    tracing::error!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        error = ?err,
+                        "Failed to enqueue download task"
+                    );
+                    aggregate_error.push(path.clone(), anyhow::Error::from(err));
+                }
             }
             SyncAction::DeleteLocalAndInventory { path, is_directory } => {
                 tracing::info!(
@@ -606,39 +639,17 @@ impl Mount {
                     "Deleting local file/folder and inventory entry"
                 );
 
-                // Delete from filesystem
-                let delete_result = if *is_directory {
-                    std::fs::remove_dir_all(path)
-                } else {
-                    std::fs::remove_file(path)
-                };
-
-                if let Err(err) = delete_result {
-                    if err.kind() != io::ErrorKind::NotFound {
-                        tracing::error!(
-                            target: "drive::sync",
-                            id = %self.id,
-                            path = %path.display(),
-                            error = %err,
-                            "Failed to delete local file/folder"
-                        );
-                        aggregate_error.push(path.clone(), anyhow::Error::from(err));
-                        return;
-                    }
-                }
-
-                // Delete from inventory
-                if let Some(path_str) = path.to_str() {
-                    if let Err(err) = self.inventory.batch_delete_by_path(vec![path_str]) {
-                        tracing::error!(
-                            target: "drive::sync",
-                            id = %self.id,
-                            path = %path.display(),
-                            error = %err,
-                            "Failed to delete inventory entry"
-                        );
-                        aggregate_error.push(path.clone(), err);
-                    }
+                let cr_placeholder =
+                    CrPlaceholder::new(path.clone(), sync_root.clone(), drive_id.clone());
+                if let Err(err) = cr_placeholder.delete_placeholder(self.inventory.clone()) {
+                    tracing::error!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        error = ?err,
+                        "Failed to delete local file/folder and inventory entry"
+                    );
+                    aggregate_error.push(path.clone(), anyhow::Error::from(err));
                 }
             }
             SyncAction::CreateRemoteFolder { path } => {
@@ -648,7 +659,20 @@ impl Mount {
                     path = %path.display(),
                     "Creating remote folder"
                 );
-                // TODO: Implement remote folder creation via API
+                if let Err(err) = self
+                    .task_queue
+                    .enqueue(TaskPayload::upload(path.clone()))
+                    .await
+                {
+                    tracing::error!(
+                        target: "drive::sync",
+                        id = %self.id,
+                        path = %path.display(),
+                        error = ?err,
+                        "Failed to enqueue upload task"
+                    );
+                    aggregate_error.push(path.clone(), anyhow::Error::from(err));
+                }
             }
             SyncAction::RenameLocalWithConflict { original, renamed } => {
                 tracing::info!(
@@ -665,7 +689,7 @@ impl Mount {
                         id = %self.id,
                         original = %original.display(),
                         renamed = %renamed.display(),
-                        error = %err,
+                        error = ?err,
                         "Failed to rename local file"
                     );
                     aggregate_error.push(original.clone(), anyhow::Error::from(err));
