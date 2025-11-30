@@ -1,5 +1,9 @@
 use crate::{
-    cfapi::{filter::ticket, placeholder::OpenOptions, utility::WriteAt},
+    cfapi::{
+        filter::ticket,
+        placeholder::{LocalFileInfo, OpenOptions, PinState},
+        utility::WriteAt,
+    },
     drive::{
         mounts::Mount,
         sync::{GroupedFsEvents, SyncMode},
@@ -31,6 +35,9 @@ use std::{
     path::{Path, PathBuf},
 };
 use tokio::sync::oneshot::Sender;
+use widestring::U16CString;
+use windows::Win32::Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW};
+use windows_core::PCWSTR;
 const PAGE_SIZE: i32 = 1000;
 
 #[derive(Debug, Clone)]
@@ -315,7 +322,11 @@ impl Mount {
             Ok(0) => {
                 // Mark file as in-sync
                 tracing::trace!(target: "drive::commands", path = %destination.display(), "Marking file as in-sync: OPEN");
-                match OpenOptions::new().write_access().exclusive().open(&destination) {
+                match OpenOptions::new()
+                    .write_access()
+                    .exclusive()
+                    .open(&destination)
+                {
                     Ok(mut handle) => {
                         tracing::trace!(target: "drive::commands", path = %destination.display(), "Marking file as in-sync");
                         if let Err(e) = handle.mark_in_sync(true, None) {
@@ -333,7 +344,13 @@ impl Mount {
             }
             Ok(count) => {
                 tracing::info!(target: "drive::commands", path = %source.display(), count = count, "Cancelled tasks");
-                // TODO: trigger sync on moved file
+                // We have tasks canceled, we need to trigger sync on the moved file
+                self.command_tx
+                    .send(MountCommand::Sync {
+                        local_paths: vec![source.clone()],
+                        mode: SyncMode::FullHierarchy,
+                    })
+                    .context("failed to send sync command")?;
                 Ok(())
             }
             Err(e) => {
@@ -442,35 +459,113 @@ impl Mount {
                 continue;
             }
 
+            // Extract configuration once to avoid repeated lock acquisition
+            let (sync_path, remote_base) = {
+                let config = self.config.read().await;
+                (config.sync_path.clone(), config.remote_path.to_string())
+            };
+
+            let path_uri_mappings =
+                self.build_path_uri_mappings(&filtered_events, &sync_path, &remote_base);
+
+            if path_uri_mappings.is_empty() {
+                tracing::warn!(target: "drive::commands", "No valid URIs to process");
+                return Ok(());
+            }
+
             match event_kind {
-                EventKind::Remove(_) => self.process_fs_delete_events(filtered_events).await?,
-                EventKind::Create(_) => self.process_fs_create_events(filtered_events).await?,
+                EventKind::Remove(_) => {
+                    self.process_fs_delete_events(path_uri_mappings, sync_path, remote_base)
+                        .await?
+                }
+                EventKind::Create(_) => {
+                    self.process_fs_create_events(path_uri_mappings, sync_path, remote_base)
+                        .await?
+                }
+                EventKind::Modify(_) => {
+                    self.process_fs_modify_events(path_uri_mappings, sync_path, remote_base)
+                        .await?
+                }
                 _ => (),
             }
         }
         Ok(())
     }
 
-    async fn process_fs_create_events(&self, events: Vec<Event>) -> Result<()> {
+    async fn process_fs_modify_events(
+        &self,
+        path_uri_mappings: HashMap<String, PathBuf>,
+        sync_path: PathBuf,
+        remote_base: String,
+    ) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",
-            event_count = events.len(),
-            events = ?events,
-            "Processing filesystem create events"
+            uri_count = path_uri_mappings.len(),
+            uris = ?path_uri_mappings,
+            "Processing filesystem modify events"
         );
 
-        // Extract configuration once to avoid repeated lock acquisition
-        let (sync_path, remote_base) = {
-            let config = self.config.read().await;
-            (config.sync_path.clone(), config.remote_path.to_string())
-        };
+        for (remote_uri, path) in path_uri_mappings {
+            let placeholder_info = match LocalFileInfo::from_path(path.as_path()) {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::error!(target: "drive::commands", path = %path.display(), error = %e, "Failed to get local file info");
+                    continue;
+                }
+            };
+            if placeholder_info.is_directory() {
+                continue;
+            }
 
-        let path_uri_mappings = self.build_path_uri_mappings(&events, &sync_path, &remote_base);
+            // For pinned file but not on disk, hydrate it
+            if placeholder_info.pinned() == PinState::Pinned && placeholder_info.partial_on_disk() {
+                tracing::debug!(target: "drive::commands", path = %path.display(), "Hydrate pinned not on disk placeholder");
+                let mut placeholder = match OpenOptions::new().open_win32(path.as_path()) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::error!(target: "drive::commands", path = %path.display(), error = %e, "Failed to open win32 file");
+                        continue;
+                    }
+                };
+                if let Err(e) = placeholder.hydrate(0..) {
+                    tracing::error!(target: "drive::commands", path = %path.display(), error = %e, "Failed to hydrate placeholder");
+                    continue;
+                }
+                continue;
+            }
 
-        if path_uri_mappings.is_empty() {
-            tracing::warn!(target: "drive::commands", "No valid URIs to delete");
-            return Ok(());
+            // General modification, quque a upload task if not exist
+            if !placeholder_info.in_sync() {
+                tracing::debug!(target: "drive::commands", path = %path.display(), "Queuing upload task for modified file");
+                let payload = TaskPayload::upload(path.clone());
+                let result = self
+                    .task_queue
+                    .enqueue(payload)
+                    .await
+                    .context("Failed to enqueue upload task");
+                if result.is_err() {
+                    tracing::error!(target: "drive::commands", path = %path.display(), error = ?result, "Failed to enqueue upload task");
+                    continue;
+                }
+                continue;
+            }
         }
+
+        Ok(())
+    }
+
+    async fn process_fs_create_events(
+        &self,
+        path_uri_mappings: HashMap<String, PathBuf>,
+        sync_path: PathBuf,
+        remote_base: String,
+    ) -> Result<()> {
+        tracing::debug!(
+            target: "drive::commands",
+            uri_count = path_uri_mappings.len(),
+            uris = ?path_uri_mappings,
+            "Processing filesystem create events"
+        );
 
         for (remote_uri, path) in path_uri_mappings {
             let payload = TaskPayload::upload(path.clone());
@@ -492,27 +587,18 @@ impl Mount {
     /// 2. Sends batch delete request to the server
     /// 3. Handles partial failures in batch operations
     /// 4. Updates local inventory for successfully deleted files
-    async fn process_fs_delete_events(&self, events: Vec<Event>) -> Result<()> {
+    async fn process_fs_delete_events(
+        &self,
+        path_uri_mappings: HashMap<String, PathBuf>,
+        sync_path: PathBuf,
+        remote_base: String,
+    ) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",
-            event_count = events.len(),
-            events = ?events,
+            uri_count = path_uri_mappings.len(),
+            uris = ?path_uri_mappings,
             "Processing filesystem delete events"
         );
-
-        // Extract configuration once to avoid repeated lock acquisition
-        let (sync_path, remote_base) = {
-            let config = self.config.read().await;
-            (config.sync_path.clone(), config.remote_path.to_string())
-        };
-
-        // Build mapping between URIs and their corresponding local paths
-        let path_uri_mappings = self.build_path_uri_mappings(&events, &sync_path, &remote_base);
-
-        if path_uri_mappings.is_empty() {
-            tracing::warn!(target: "drive::commands", "No valid URIs to delete");
-            return Ok(());
-        }
 
         let uris: Vec<String> = path_uri_mappings.keys().cloned().collect();
 

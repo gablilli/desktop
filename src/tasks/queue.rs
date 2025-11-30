@@ -138,9 +138,18 @@ impl TaskQueue {
             record = record.with_custom_state(state);
         }
 
-        self.inventory
-            .insert_task(&record)
+        let inserted = self
+            .inventory
+            .insert_task_if_not_exist(&record)
             .with_context(|| format!("Failed to persist task {}", task_id))?;
+
+        if !inserted {
+            return Err(anyhow!(
+                "Task already exists for {} with type {}",
+                payload.local_path_display(),
+                payload.kind.as_str()
+            ));
+        }
 
         let payload = payload.with_task_id(task_id.clone());
         self.dispatch_task(task_id.clone(), payload)?;

@@ -1,10 +1,10 @@
 use super::{FileMetadata, MetadataEntry, NewTaskRecord, TaskRecord, TaskStatus, TaskUpdate};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
 use diesel::OptionalExtension;
 use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Text};
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
+use diesel::sql_types::{BigInt, Text};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use dirs::home_dir;
@@ -203,15 +203,37 @@ impl InventoryDb {
         Ok(())
     }
 
-    /// Insert a task queue record
-    pub fn insert_task(&self, task: &NewTaskRecord) -> Result<()> {
+    /// Insert a task queue record if no pending/running task with the same type and path exists.
+    /// Returns `true` if the task was inserted, `false` if a duplicate was found.
+    pub fn insert_task_if_not_exist(&self, task: &NewTaskRecord) -> Result<bool> {
         let mut conn = self.connection()?;
+
+        // Check if a pending or running task with the same type and path already exists
+        let active_statuses = vec![
+            TaskStatus::Pending.as_str().to_string(),
+            TaskStatus::Running.as_str().to_string(),
+        ];
+
+        let existing: Option<String> = task_queue_dsl::task_queue
+            .filter(task_queue_dsl::drive_id.eq(&task.drive_id))
+            .filter(task_queue_dsl::task_type.eq(&task.task_type))
+            .filter(task_queue_dsl::local_path.eq(&task.local_path))
+            .filter(task_queue_dsl::status.eq_any(&active_statuses))
+            .select(task_queue_dsl::id)
+            .first(&mut conn)
+            .optional()
+            .context("Failed to check for existing task")?;
+
+        if existing.is_some() {
+            return Ok(false);
+        }
+
         let row = NewTaskRow::try_from(task)?;
         diesel::insert_into(task_queue::table)
             .values(&row)
             .execute(&mut conn)
             .context("Failed to insert task queue record")?;
-        Ok(())
+        Ok(true)
     }
 
     /// Update task queue record
@@ -370,8 +392,6 @@ impl InventoryDb {
 
         Ok(total)
     }
-
-
 }
 
 fn run_migrations(database_url: &str) -> Result<()> {

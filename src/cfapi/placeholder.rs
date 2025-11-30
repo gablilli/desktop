@@ -20,12 +20,21 @@ use windows::{
         },
         Storage::{
             CloudFilters::{
-                self, CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_FS_METADATA, CF_OPEN_FILE_FLAGS, CF_PIN_STATE, CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO, CF_PLACEHOLDER_STATE, CF_SET_PIN_FLAGS, CF_UPDATE_FLAGS, CfCloseHandle, CfConvertToPlaceholder, CfGetPlaceholderInfo, CfGetPlaceholderRangeInfo, CfGetPlaceholderStateFromFileInfo, CfGetPlaceholderStateFromFindData, CfGetWin32HandleFromProtectedHandle, CfHydratePlaceholder, CfOpenFileWithOplock, CfReferenceProtectedHandle, CfReleaseProtectedHandle, CfRevertPlaceholder, CfSetInSyncState, CfSetPinState, CfUpdatePlaceholder
+                self, CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_FS_METADATA, CF_OPEN_FILE_FLAGS,
+                CF_PIN_STATE, CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO,
+                CF_PLACEHOLDER_STATE, CF_SET_PIN_FLAGS, CF_UPDATE_FLAGS, CfCloseHandle,
+                CfConvertToPlaceholder, CfGetPlaceholderInfo, CfGetPlaceholderRangeInfo,
+                CfGetPlaceholderStateFromFileInfo, CfGetPlaceholderStateFromFindData,
+                CfGetWin32HandleFromProtectedHandle, CfHydratePlaceholder, CfOpenFileWithOplock,
+                CfReferenceProtectedHandle, CfReleaseProtectedHandle, CfRevertPlaceholder,
+                CfSetInSyncState, CfSetPinState, CfUpdatePlaceholder,
             },
             FileSystem::{
-                FILE_ATTRIBUTE_DIRECTORY, FIND_FIRST_EX_FLAGS, FindClose, FindExInfoBasic,
+                CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_PINNED,
+                FILE_ATTRIBUTE_UNPINNED, FILE_FLAGS_AND_ATTRIBUTES, FILE_READ_DATA,
+                FILE_SHARE_MODE, FIND_FIRST_EX_FLAGS, FindClose, FindExInfoBasic,
                 FindExInfoStandard, FindExSearchNameMatch, FindFirstFileA, FindFirstFileExA,
-                FindFirstFileExW, WIN32_FIND_DATAA, WIN32_FIND_DATAW,
+                FindFirstFileExW, OPEN_EXISTING, WIN32_FIND_DATAA, WIN32_FIND_DATAW,
             },
         },
     },
@@ -150,6 +159,7 @@ unsafe impl Sync for ArcWin32Handle {}
 /// Options for opening a placeholder file/directory.
 pub struct OpenOptions {
     flags: CF_OPEN_FILE_FLAGS,
+    share_mode: FILE_SHARE_MODE,
 }
 
 impl OpenOptions {
@@ -177,6 +187,24 @@ impl OpenOptions {
         self
     }
 
+    pub fn open_win32(self, path: impl AsRef<Path>) -> core::Result<Placeholder> {
+        let u16_path = U16CString::from_os_str(path.as_ref()).unwrap();
+        let handle = unsafe {
+            CreateFileW(
+                PCWSTR(u16_path.as_ptr()),
+                0,
+                self.share_mode,
+                None,
+                OPEN_EXISTING,
+                FILE_FLAGS_AND_ATTRIBUTES(0),
+                None,
+            )
+        }?;
+        Ok(Placeholder {
+            handle: unsafe { OwnedPlaceholderHandle::from_win32(handle) },
+        })
+    }
+
     /// Open the placeholder file/directory using `CfOpenFileWithOplock`.
     pub fn open(self, path: impl AsRef<Path>) -> core::Result<Placeholder> {
         let u16_path = U16CString::from_os_str(path.as_ref()).unwrap();
@@ -191,6 +219,7 @@ impl Default for OpenOptions {
     fn default() -> Self {
         Self {
             flags: CloudFilters::CF_OPEN_FILE_FLAG_NONE,
+            share_mode: FILE_SHARE_MODE(FILE_READ_DATA.0),
         }
     }
 }
@@ -405,6 +434,7 @@ pub struct LocalFileInfo {
     pub file_size: Option<u64>,
     pub last_modified: Option<SystemTime>,
     pub placeholder_state: Option<PlaceholderState>,
+    pub pin_state: PinState,
 }
 
 impl LocalFileInfo {
@@ -415,6 +445,7 @@ impl LocalFileInfo {
             file_size: None,
             last_modified: None,
             placeholder_state: None,
+            pin_state: PinState::Unspecified,
         }
     }
 
@@ -441,6 +472,13 @@ impl LocalFileInfo {
         // Close the handle after use
         unsafe { FindClose(handle) };
 
+        let pin_state = if find_data.dwFileAttributes & FILE_ATTRIBUTE_PINNED.0 != 0 {
+            PinState::Pinned
+        } else if find_data.dwFileAttributes & FILE_ATTRIBUTE_UNPINNED.0 != 0 {
+            PinState::Unpinned
+        } else {
+            PinState::Unspecified
+        };
         let is_directory = (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY.0) != 0;
         let file_size = (!is_directory)
             .then_some(((find_data.nFileSizeHigh as u64) << 32) | find_data.nFileSizeLow as u64);
@@ -453,6 +491,7 @@ impl LocalFileInfo {
             file_size,
             last_modified,
             placeholder_state: Some(placeholder_state),
+            pin_state: pin_state,
         })
     }
 
@@ -470,19 +509,23 @@ impl LocalFileInfo {
             .unwrap_or(false)
     }
 
-    pub fn pinned(&self) -> bool {
-        // TODO: implemente
-        false
+    pub fn partial_on_disk(&self) -> bool {
+        self.placeholder_state
+            .as_ref()
+            .map(|state: &PlaceholderState| state.partial_on_disk())
+            .unwrap_or(false)
+    }
+
+    pub fn pinned(&self) -> PinState {
+        self.pin_state.clone()
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.is_directory
     }
 
     pub fn is_folder_populated(&self) -> bool {
-        self.is_placeholder()
-            && self.is_directory
-            && !self
-                .placeholder_state
-                .as_ref()
-                .map(|state: &PlaceholderState| state.partial_on_disk())
-                .unwrap_or(false)
+        self.is_placeholder() && self.is_directory && !self.partial_on_disk()
     }
 }
 
@@ -927,7 +970,10 @@ impl Placeholder {
         unsafe {
             CfUpdatePlaceholder(
                 self.handle.handle,
-                options.metadata.as_ref().map(|x| &x.0 as *const CF_FS_METADATA),
+                options
+                    .metadata
+                    .as_ref()
+                    .map(|x| &x.0 as *const CF_FS_METADATA),
                 (!options.blob.is_empty()).then_some(options.blob.as_ptr() as *const _),
                 options.blob.len() as _,
                 (options.dehydrate_ranges.is_empty()).then_some(&options.dehydrate_ranges),
