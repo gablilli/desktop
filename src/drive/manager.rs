@@ -180,6 +180,7 @@ impl DriveManager {
 
         let mount_arc = Arc::new(mount);
         mount_arc.spawn_command_processor(mount_arc.clone()).await;
+        mount_arc.spawn_props_refresh_task().await;
         let id = mount_arc.id.clone();
         write_guard.insert(id.clone(), mount_arc);
         Ok(id)

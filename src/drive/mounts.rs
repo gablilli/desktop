@@ -7,10 +7,11 @@ use crate::drive::commands::ManagerCommand;
 use crate::drive::commands::MountCommand;
 use crate::drive::event_blocker::EventBlocker;
 use crate::drive::sync::group_fs_events;
-use crate::inventory::{InventoryDb, TaskRecord};
+use crate::inventory::{DrivePropsUpdate, InventoryDb, TaskRecord};
 use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
+use cloudreve_api::api::user::UserApi;
 use cloudreve_api::{Client, ClientConfig, models::user::Token};
 use notify_debouncer_full::notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
@@ -69,6 +70,7 @@ pub struct Mount {
     pub command_tx: mpsc::UnboundedSender<MountCommand>,
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    props_refresh_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     status: Arc<RwLock<MountStatus>>,
     manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     fs_watcher: Mutex<Option<FsWatcher>>,
@@ -138,8 +140,9 @@ impl Mount {
             command_tx,
             command_rx: Arc::new(tokio::sync::Mutex::new(Some(command_rx))),
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
+            props_refresh_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cr_client: cr_client_arc,
-            inventory: inventory,
+            inventory,
             task_queue,
             status: Arc::new(RwLock::new(MountStatus::InSync)),
             id,
@@ -420,6 +423,12 @@ impl Mount {
             handle.abort();
         }
 
+        // Stop the props refresh task
+        if let Some(handle) = self.props_refresh_handle.lock().await.take() {
+            tracing::debug!(target: "drive::mounts", id=%self.id, "Stopping props refresh task");
+            handle.abort();
+        }
+
         if let Some(ref connection) = self.connection {
             connection.disconnect();
         }
@@ -434,6 +443,91 @@ impl Mount {
         if let Err(e) = self.inventory.nuke_drive(&self.id) {
             tracing::error!(target: "drive::mounts", id=%self.id, error=%e, "Failed to nuke drive");
         }
+    }
+
+    /// Spawn the periodic props refresh task
+    pub async fn spawn_props_refresh_task(self: &Arc<Self>) {
+        let mount = self.clone();
+        let mount_id = self.id.clone();
+
+        // Check if props exist, if not, trigger immediate refresh
+        let should_refresh_immediately = match self.inventory.has_drive_props(&self.id) {
+            Ok(has_props) => !has_props,
+            Err(e) => {
+                tracing::warn!(target: "drive::mounts", id=%mount_id, error=%e, "Failed to check drive props existence");
+                true // Refresh if we can't check
+            }
+        };
+
+        let handle = spawn(async move {
+            // Refresh interval: 5 minutes
+            let refresh_interval = Duration::from_secs(300);
+
+            // If no props exist, refresh immediately
+            if should_refresh_immediately {
+                tracing::info!(target: "drive::mounts", id=%mount_id, "No drive props found, triggering immediate refresh");
+                if let Err(e) = mount.refresh_drive_props().await {
+                    tracing::error!(target: "drive::mounts", id=%mount_id, error=%e, "Failed to refresh drive props");
+                }
+            }
+
+            loop {
+                tokio::time::sleep(refresh_interval).await;
+                tracing::debug!(target: "drive::mounts", id=%mount_id, "Periodic props refresh triggered");
+
+                if let Err(e) = mount.refresh_drive_props().await {
+                    tracing::error!(target: "drive::mounts", id=%mount_id, error=%e, "Failed to refresh drive props");
+                }
+            }
+        });
+
+        *self.props_refresh_handle.lock().await = Some(handle);
+    }
+
+    /// Refresh drive props from the API (capacity and user settings)
+    pub async fn refresh_drive_props(&self) -> Result<()> {
+        tracing::debug!(target: "drive::mounts", id=%self.id, "Refreshing drive props");
+
+        let mut update = DrivePropsUpdate::default();
+
+        // Fetch user capacity
+        match self.cr_client.get_user_capacity().await {
+            Ok(capacity) => {
+                tracing::debug!(target: "drive::mounts", id=%self.id, used=%capacity.used, total=%capacity.total, "Fetched user capacity");
+                update = update.with_capacity(capacity);
+            }
+            Err(e) => {
+                tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to fetch user capacity");
+            }
+        }
+
+        // Fetch user settings
+        match self.cr_client.get_user_storage_policies  ().await {
+            Ok(policies) => {
+                tracing::debug!(target: "drive::mounts", id=%self.id, "Fetched user storage policies");
+                update = update.with_storage_policies(policies);
+            }
+            Err(e) => {
+                tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to fetch user storage policies");
+            }
+        }
+
+        // Save to database if we have any updates
+        if !update.is_empty() {
+            self.inventory
+                .upsert_drive_props(&self.id, update)
+                .context("Failed to save drive props")?;
+            tracing::info!(target: "drive::mounts", id=%self.id, "Drive props updated successfully");
+        }
+
+        Ok(())
+    }
+
+    /// Get cached drive props from the database
+    pub fn get_drive_props(&self) -> Result<Option<crate::inventory::DriveProps>> {
+        self.inventory
+            .get_drive_props(&self.id)
+            .context("Failed to get drive props")
     }
 }
 

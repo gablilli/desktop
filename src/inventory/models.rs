@@ -1,3 +1,5 @@
+use cloudreve_api::models::explorer::StoragePolicy;
+use cloudreve_api::models::user::{Capacity, UserSettings};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -261,6 +263,52 @@ impl TaskUpdate {
             && self.processed_bytes.is_none()
             && self.custom_state.is_none()
             && self.error.is_none()
+    }
+}
+
+/// Cached properties for a drive
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct DriveProps {
+    pub id: i64,
+    pub drive_id: String,
+    pub capacity: Option<Capacity>,
+    pub capacity_updated_at: Option<i64>,
+    pub storage_policies: Option<Vec<StoragePolicy>>,
+    pub storage_policies_updated_at: Option<i64>,
+    pub user_settings: Option<UserSettings>,
+    pub user_settings_updated_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Update entry for drive props
+#[derive(Debug, Clone, Default)]
+pub struct DrivePropsUpdate {
+    pub capacity: Option<Option<Capacity>>,
+    pub storage_policies: Option<Option<Vec<StoragePolicy>>>,
+    pub user_settings: Option<Option<UserSettings>>,
+}
+
+impl DrivePropsUpdate {
+    pub fn is_empty(&self) -> bool {
+        self.capacity.is_none()
+            && self.storage_policies.is_none()
+            && self.user_settings.is_none()
+    }
+
+    pub fn with_capacity(mut self, capacity: Capacity) -> Self {
+        self.capacity = Some(Some(capacity));
+        self
+    }
+
+    pub fn with_storage_policies(mut self, policies: Vec<StoragePolicy>) -> Self {
+        self.storage_policies = Some(Some(policies));
+        self
+    }
+
+    pub fn with_user_settings(mut self, settings: UserSettings) -> Self {
+        self.user_settings = Some(Some(settings));
+        self
     }
 }
 

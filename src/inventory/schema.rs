@@ -52,3 +52,18 @@ diesel::table! {
         updated_at -> BigInt,
     }
 }
+
+diesel::table! {
+    drive_props (id) {
+        id -> BigInt,
+        drive_id -> Text,
+        capacity -> Nullable<Text>,
+        capacity_updated_at -> Nullable<BigInt>,
+        storage_policies -> Nullable<Text>,
+        storage_policies_updated_at -> Nullable<BigInt>,
+        user_settings -> Nullable<Text>,
+        user_settings_updated_at -> Nullable<BigInt>,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}

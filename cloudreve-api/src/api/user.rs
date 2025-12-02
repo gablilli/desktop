@@ -1,5 +1,6 @@
 use crate::client::{Client, RequestOptions};
 use crate::error::ApiResult;
+use crate::models::explorer::StoragePolicy;
 use crate::models::user::*;
 use async_trait::async_trait;
 
@@ -35,6 +36,9 @@ pub trait UserApi {
     
     /// Reset password with secret
     async fn reset_password(&self, request: &ResetPasswordService) -> ApiResult<()>;
+
+    /// Get user storage policies
+    async fn get_user_storage_policies(&self) -> ApiResult<Vec<StoragePolicy>>;
 }
 
 #[async_trait]
@@ -72,6 +76,10 @@ impl UserApi for Client {
     
     async fn get_user_capacity(&self) -> ApiResult<Capacity> {
         self.get("/user/capacity", RequestOptions::new()).await
+    }
+
+    async fn get_user_storage_policies(&self) -> ApiResult<Vec<StoragePolicy>> {
+        self.get("/user/setting/policies", RequestOptions::new()).await
     }
     
     async fn get_user_settings(&self) -> ApiResult<UserSettings> {
