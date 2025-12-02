@@ -1,7 +1,6 @@
 use super::{FileMetadata, MetadataEntry, NewTaskRecord, TaskRecord, TaskStatus, TaskUpdate};
 use anyhow::{Context, Result, anyhow};
 use chrono::Utc;
-use cloudreve_api::models::explorer::StoragePolicy;
 use diesel::OptionalExtension;
 use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
@@ -129,7 +128,7 @@ impl InventoryDb {
     /// Insert or update a file metadata entry (upsert based on local_path)
     pub fn upsert(&self, entry: &MetadataEntry) -> Result<usize> {
         let mut conn = self.connection()?;
-        let insert_data = NewFileMetadata::try_from(entry)?;
+        let mut insert_data = NewFileMetadata::try_from(entry)?;
         let update_data = FileMetadataChangeset::from_entry(entry)?;
 
         diesel::insert_into(file_metadata::table)
@@ -139,57 +138,6 @@ impl InventoryDb {
             .set(update_data)
             .execute(&mut conn)
             .context("Failed to upsert inventory metadata")
-    }
-
-    /// Update the storage_policy field for a given path.
-    /// If the record does not exist (e.g., root folder), insert a new entry with default values
-    /// but with the provided storage_policy.
-    pub fn upsert_storage_policy(
-        &self,
-        drive_id: &str,
-        path: &str,
-        storage_policy: &StoragePolicy,
-    ) -> Result<usize> {
-        let mut conn = self.connection()?;
-        let storage_policy_json =
-            serde_json::to_string(storage_policy).context("Failed to serialize storage_policy")?;
-        let now = Utc::now().timestamp();
-
-        // Try to update existing record first
-        let rows_affected = diesel::update(
-            file_metadata_dsl::file_metadata.filter(file_metadata_dsl::local_path.eq(path)),
-        )
-        .set((
-            file_metadata_dsl::storage_policy.eq(&storage_policy_json),
-            file_metadata_dsl::updated_at.eq(now),
-        ))
-        .execute(&mut conn)
-        .context("Failed to update storage_policy")?;
-
-        if rows_affected > 0 {
-            return Ok(rows_affected);
-        }
-
-        // Record does not exist, insert a new one with default values
-        let new_entry = NewFileMetadata {
-            drive_id: drive_id.to_string(),
-            is_folder: true, // Root folder assumption
-            local_path: path.to_string(),
-            created_at: now,
-            updated_at: now,
-            etag: String::new(),
-            metadata: "{}".to_string(),
-            props: None,
-            permissions: String::new(),
-            shared: false,
-            size: 0,
-            storage_policy: Some(storage_policy_json),
-        };
-
-        diesel::insert_into(file_metadata::table)
-            .values(&new_entry)
-            .execute(&mut conn)
-            .context("Failed to insert file metadata with storage_policy")
     }
 
     /// Query file metadata by local path
@@ -483,7 +431,8 @@ impl InventoryDb {
     pub fn delete_upload_sessions_by_task(&self, task_id: &str) -> Result<()> {
         let mut conn = self.connection()?;
         diesel::delete(
-            upload_sessions_dsl::upload_sessions.filter(upload_sessions_dsl::task_id.eq(task_id)),
+            upload_sessions_dsl::upload_sessions
+                .filter(upload_sessions_dsl::task_id.eq(task_id)),
         )
         .execute(&mut conn)
         .context("Failed to delete upload sessions for task")?;
@@ -495,7 +444,8 @@ impl InventoryDb {
         let mut conn = self.connection()?;
         let now = Utc::now().timestamp();
         let deleted = diesel::delete(
-            upload_sessions_dsl::upload_sessions.filter(upload_sessions_dsl::expires_at.lt(now)),
+            upload_sessions_dsl::upload_sessions
+                .filter(upload_sessions_dsl::expires_at.lt(now)),
         )
         .execute(&mut conn)
         .context("Failed to delete expired upload sessions")?;
@@ -523,7 +473,9 @@ impl InventoryDb {
                     file_metadata_dsl::file_metadata
                         .filter(file_metadata_dsl::local_path.eq(old_path)),
                 )
-                .set((file_metadata_dsl::local_path.eq(new_path),))
+                .set((
+                    file_metadata_dsl::local_path.eq(new_path),
+                ))
                 .execute(tx_conn)?;
 
                 let descendants = diesel::sql_query(
@@ -566,7 +518,6 @@ struct FileMetadataRow {
     permissions: String,
     shared: bool,
     size: i64,
-    storage_policy: Option<String>,
 }
 
 #[derive(Queryable)]
@@ -717,7 +668,6 @@ struct NewFileMetadata {
     permissions: String,
     shared: bool,
     size: i64,
-    storage_policy: Option<String>,
 }
 
 #[derive(AsChangeset)]
@@ -746,13 +696,6 @@ impl TryFrom<FileMetadataRow> for FileMetadata {
             }
             None => None,
         };
-        let storage_policy_value = match row.storage_policy {
-            Some(json) => Some(
-                serde_json::from_str(&json)
-                    .context("Failed to deserialize storage_policy column")?,
-            ),
-            None => None,
-        };
 
         Ok(FileMetadata {
             id: row.id,
@@ -767,7 +710,6 @@ impl TryFrom<FileMetadataRow> for FileMetadata {
             permissions: row.permissions,
             shared: row.shared,
             size: row.size,
-            storage_policy: storage_policy_value,
         })
     }
 }
@@ -794,7 +736,6 @@ impl TryFrom<&MetadataEntry> for NewFileMetadata {
             permissions: entry.permissions.clone(),
             shared: entry.shared,
             size: entry.size,
-            storage_policy: None,
         })
     }
 }

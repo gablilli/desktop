@@ -19,7 +19,7 @@ use cloudreve_api::{
     models::{
         explorer::{
             DeleteFileService, FileResponse, FileURLService, MoveFileService, RenameFileService,
-            StoragePolicy, metadata,
+            metadata,
         },
         uri::CrUri,
         user::Token,
@@ -36,17 +36,13 @@ use std::{
 };
 use tokio::sync::oneshot::Sender;
 use widestring::U16CString;
-use windows::Win32::{
-    Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW},
-    UI::Shell::SHCNE_ATTRIBUTES,
-};
+use windows::Win32::{Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW}, UI::Shell::SHCNE_ATTRIBUTES};
 use windows_core::PCWSTR;
 const PAGE_SIZE: i32 = 1000;
 
 #[derive(Debug, Clone)]
 pub struct GetPlacehodlerResult {
     pub files: Vec<FileResponse>,
-    pub storage_policy: Option<StoragePolicy>,
     pub local_path: PathBuf,
     pub remote_path: CrUri,
 }
@@ -242,7 +238,7 @@ impl Mount {
         let uri = local_path_to_cr_uri(path.clone(), sync_path, remote_base)
             .context("failed to convert local path to cloudreve uri")?;
         let mut placehodlers: Vec<FileResponse> = Vec::new();
-        let mut storage_policy: Option<StoragePolicy> = None;
+
         let mut previous_response = None;
         loop {
             let response = self
@@ -254,7 +250,6 @@ impl Mount {
                 tracing::debug!(target: "drive::mounts", file = %file.name, "Server file");
             }
 
-            storage_policy = response.res.storage_policy.clone();
             placehodlers.extend(response.res.files.clone());
             let has_more: bool = response.more;
             previous_response = Some(response);
@@ -268,7 +263,6 @@ impl Mount {
 
         Ok(GetPlacehodlerResult {
             files: placehodlers,
-            storage_policy: storage_policy,
             local_path: path.clone(),
             remote_path: uri.clone(),
         })
@@ -281,11 +275,10 @@ impl Mount {
             .context("failed to query metadata by path")?
             .ok_or_else(|| anyhow::anyhow!("no metadata found for path: {:?}", path))?;
 
-        if file_meta.is_folder
-            || file_meta
-                .metadata
-                .get(metadata::THUMBNAIL_DISABLED)
-                .is_some()
+        if file_meta
+            .metadata
+            .get(metadata::THUMBNAIL_DISABLED)
+            .is_some()
         {
             return Err(anyhow::anyhow!("thumbnail disabled for path: {:?}", path));
         }

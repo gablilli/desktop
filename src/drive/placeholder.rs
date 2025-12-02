@@ -105,7 +105,7 @@ impl CrPlaceholder {
             }
 
             // TODO: Update metadata
-
+            
             if self.options & CrPlaceholderOptions::InvalidateAllRange as u32 != 0 {
                 tracing::debug!(target: "drive::placeholder", local_path = %self.local_path.display(), "Invalidating all range");
                 let mut local_handle = OpenOptions::new()
@@ -125,24 +125,20 @@ impl CrPlaceholder {
                 .context("failed to get relative path")?;
             tracing::trace!(target: "drive::placeholder", relative_path = %relative_path.to_string_lossy(), "Relative path");
             let primary_entity = OsString::from(file_meta.etag.clone());
-            let placeholder = PlaceholderFile::new(
-                self.local_path
-                    .file_name()
-                    .context("failed to get file name")?,
-            )
-            .metadata(
-                match file_meta.is_folder {
-                    true => Metadata::directory(),
-                    false => Metadata::file(),
-                }
-                .size(file_meta.size as u64)
-                .changed(FileTime::from_unix_time(file_meta.updated_at)?)
-                .written(FileTime::from_unix_time(file_meta.updated_at)?)
-                .created(FileTime::from_unix_time(file_meta.created_at)?),
-            )
-            .mark_in_sync()
-            .overwrite()
-            .blob(primary_entity.into_encoded_bytes());
+            let placeholder = PlaceholderFile::new(self.local_path.file_name().context("failed to get file name")?)
+                .metadata(
+                    match file_meta.is_folder {
+                        true => Metadata::directory(),
+                        false => Metadata::file(),
+                    }
+                    .size(file_meta.size as u64)
+                    .changed(FileTime::from_unix_time(file_meta.updated_at)?)
+                    .written(FileTime::from_unix_time(file_meta.updated_at)?)
+                    .created(FileTime::from_unix_time(file_meta.created_at)?),
+                )
+                .mark_in_sync()
+                .overwrite()
+                .blob(primary_entity.into_encoded_bytes());
             let parent_path: &std::path::Path = self
                 .local_path
                 .parent()
@@ -196,7 +192,6 @@ impl CrPlaceholder {
             props: None,
             permissions: file_info.permission.clone().unwrap_or_default(),
             shared: file_info.shared.unwrap_or(false),
-            storage_policy: None,
         });
         self
     }

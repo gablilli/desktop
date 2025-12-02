@@ -161,17 +161,6 @@ impl SyncFilter for CallbackHandler {
                 if let Err(e) = self.inventory.batch_insert(&entries) {
                     tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to insert placeholders into inventory");
                 }
-
-                // Upser parent folder storage policy
-                if let Some(storage_policy) = files.storage_policy {
-                    if let Err(e) = self.inventory.upsert_storage_policy(
-                        &drive_id.to_string(),
-                        &files.local_path.display().to_string(),
-                        &storage_policy,
-                    ) {
-                        tracing::error!(target: "drive::mounts", id = %self.id, error = ?e, "Failed to upsert parent folder storage policy");
-                    }
-                }
                 return Ok(());
             }
             _ => {}
