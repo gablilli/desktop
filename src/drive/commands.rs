@@ -275,7 +275,7 @@ impl Mount {
             .context("failed to query metadata by path")?
             .ok_or_else(|| anyhow::anyhow!("no metadata found for path: {:?}", path))?;
 
-        if file_meta
+        if file_meta.is_folder || file_meta
             .metadata
             .get(metadata::THUMBNAIL_DISABLED)
             .is_some()
