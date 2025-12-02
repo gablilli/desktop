@@ -33,3 +33,22 @@ diesel::table! {
         updated_at -> BigInt,
     }
 }
+
+diesel::table! {
+    upload_sessions (id) {
+        id -> Text,
+        task_id -> Text,
+        drive_id -> Text,
+        local_path -> Text,
+        remote_uri -> Text,
+        file_size -> BigInt,
+        chunk_size -> BigInt,
+        policy_type -> Text,
+        session_data -> Text,
+        chunk_progress -> Text,
+        encrypt_metadata -> Nullable<Text>,
+        expires_at -> BigInt,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}

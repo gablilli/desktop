@@ -4,6 +4,7 @@ use crate::models::common::ListAllRes;
 use crate::models::explorer::*;
 use async_trait::async_trait;
 use bytes::Bytes;
+use reqwest::Body;
 
 /// Decode time flow string (for obfuscated thumbnail URLs)
 fn decode_time_flow_string(str: &str, time_now: i64) -> ApiResult<String> {
@@ -11,97 +12,103 @@ fn decode_time_flow_string(str: &str, time_now: i64) -> ApiResult<String> {
     if let Ok(result) = decode_time_flow_string_time(str, time_now) {
         return Ok(result);
     }
-    
+
     // Try with time - 1000
     if let Ok(result) = decode_time_flow_string_time(str, time_now - 1000) {
         return Ok(result);
     }
-    
+
     // Try with time + 1000
     if let Ok(result) = decode_time_flow_string_time(str, time_now + 1000) {
         return Ok(result);
     }
-    
-    Err(crate::error::ApiError::Other("Failed to decode time flow string".to_string()))
+
+    Err(crate::error::ApiError::Other(
+        "Failed to decode time flow string".to_string(),
+    ))
 }
 
 /// Decode time flow string time (for obfuscated thumbnail URLs)
 fn decode_time_flow_string_time(str: &str, time_now: i64) -> ApiResult<String> {
     let mut time_now = time_now / 1000;
     let time_now_backup = time_now;
-    
+
     // Extract time digits
     let mut time_digits: Vec<i64> = Vec::new();
-    
+
     if str.is_empty() {
         return Ok(String::new());
     }
-    
+
     while time_now > 0 {
         time_digits.push(time_now % 10);
         time_now /= 10;
     }
-    
+
     if time_digits.is_empty() {
-        return Err(crate::error::ApiError::Other("Invalid time value".to_string()));
+        return Err(crate::error::ApiError::Other(
+            "Invalid time value".to_string(),
+        ));
     }
-    
+
     // Convert string to character array
     let chars: Vec<char> = str.chars().collect();
     let mut res: Vec<char> = chars.clone();
     let mut secret: Vec<char> = chars.clone();
-    
+
     let mut add = secret.len() % 2 == 0;
     let mut time_digit_index = ((secret.len() - 1) % time_digits.len()) as i64;
     let l = secret.len();
-    
+
     for pos in 0..l {
         let res_index = l - 1 - pos;
         let mut new_index = res_index as i64;
-        
+
         if add {
             new_index = new_index + time_digits[time_digit_index as usize] * time_digit_index;
         } else {
             new_index = 2 * time_digit_index * time_digits[time_digit_index as usize] - new_index;
         }
-        
+
         if new_index < 0 {
             new_index = new_index * -1;
         }
-        
+
         new_index = new_index % secret.len() as i64;
         let new_index_usize = new_index as usize;
-        
+
         res[res_index] = secret[new_index_usize];
-        
+
         // Swap elements in secret
         let a = secret[res_index];
         let b = secret[new_index_usize];
         secret[new_index_usize] = a;
         secret[res_index] = b;
-        
+
         // Remove last element from secret
         secret.pop();
-        
+
         add = !add;
-        
+
         // Decrement timeDigitIndex
         time_digit_index -= 1;
         if time_digit_index < 0 {
             time_digit_index = time_digits.len() as i64 - 1;
         }
     }
-    
+
     // Convert result back to string
     let res_str: String = res.iter().collect();
-    
+
     // Validate the result
     let res_sep: Vec<&str> = res_str.split('|').collect();
-    
+
     if res_sep.is_empty() || res_sep[0] != time_now_backup.to_string() {
-        return Err(crate::error::ApiError::Other("Invalid time flow string".to_string()));
+        return Err(crate::error::ApiError::Other(
+            "Invalid time flow string".to_string(),
+        ));
     }
-    
+
     // Return the part after the first "|"
     let prefix_len = res_sep[0].len() + 1; // +1 for the "|"
     if prefix_len <= res_str.len() {
@@ -187,6 +194,15 @@ pub trait ExplorerApi {
         data: Bytes,
     ) -> ApiResult<UploadCredential>;
 
+    /// Upload chunk using streaming body (for large chunks)
+    async fn upload_chunk_stream(
+        &self,
+        session_id: &str,
+        chunk_index: usize,
+        content_length: u64,
+        body: Body,
+    ) -> ApiResult<UploadCredential>;
+
     /// Delete upload session
     async fn delete_upload_session(&self, request: &DeleteUploadSessionService) -> ApiResult<()>;
 
@@ -225,7 +241,7 @@ impl ExplorerApiExt for Client {
         // Extract pagination info from previous response
         let (page, next_token) = if let Some(prev) = previous_response {
             let prev_pagination = &prev.res.pagination;
-            
+
             // Determine next page parameters based on pagination type
             if prev_pagination.next_token.is_some() {
                 // Token-based pagination
@@ -569,6 +585,37 @@ impl ExplorerApi for Client {
             .header("Authorization", format!("Bearer {}", token))
             .header("Content-Type", "application/octet-stream")
             .body(data)
+            .send()
+            .await?;
+
+        let api_response: crate::error::ApiResponse<UploadCredential> = response.json().await?;
+
+        if api_response.code != 0 {
+            return Err(crate::error::ApiError::from_response(api_response));
+        }
+
+        api_response.data.ok_or_else(|| {
+            crate::error::ApiError::Other("API returned success but no data".to_string())
+        })
+    }
+
+    async fn upload_chunk_stream(
+        &self,
+        session_id: &str,
+        chunk_index: usize,
+        content_length: u64,
+        body: Body,
+    ) -> ApiResult<UploadCredential> {
+        let url = self.build_url(&format!("/file/upload/{}/{}", session_id, chunk_index));
+        let token = self.get_access_token().await?;
+
+        let response = self
+            .http_client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", content_length)
+            .body(body)
             .send()
             .await?;
 

@@ -6,6 +6,7 @@ mod inventory;
 mod logging;
 mod shellext;
 mod tasks;
+mod uploader;
 mod utils;
 
 use crate::utils::app::init_app_root;

@@ -263,3 +263,4 @@ impl TaskUpdate {
             && self.error.is_none()
     }
 }
+
