@@ -643,9 +643,9 @@ impl Mount {
                 skip_if_not_empty,
             } => {
                 if *skip_if_not_empty {
-                    // Check if folder is empty
+                    // Check if folder is not empty
                     if let Ok(entries) = std::fs::read_dir(path) {
-                        if entries.count() == 0 {
+                        if entries.count() > 0 {
                             tracing::info!(
                                 target: "drive::sync",
                                 id = %self.id,
