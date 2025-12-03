@@ -10,6 +10,7 @@ mod progress;
 mod providers;
 mod session;
 
+use anyhow::Context;
 pub use chunk::{ChunkProgress, ChunkUploader};
 pub use error::{UploadError, UploadResult};
 pub use progress::{ProgressCallback, ProgressUpdate};
@@ -35,8 +36,6 @@ pub struct UploaderConfig {
     pub retry_max_delay: Duration,
     /// Request timeout for chunk uploads
     pub request_timeout: Duration,
-    /// Chunk concurrency (number of parallel chunk uploads)
-    pub chunk_concurrency: usize,
 }
 
 impl Default for UploaderConfig {
@@ -46,7 +45,6 @@ impl Default for UploaderConfig {
             retry_base_delay: Duration::from_secs(1),
             retry_max_delay: Duration::from_secs(30),
             request_timeout: Duration::from_secs(300),
-            chunk_concurrency: 1,
         }
     }
 }
@@ -58,8 +56,6 @@ pub struct UploadParams {
     pub local_path: PathBuf,
     /// Remote URI (cloudreve path)
     pub remote_uri: String,
-    /// Storage policy ID
-    pub policy_id: String,
     /// File size in bytes
     pub file_size: u64,
     /// File MIME type (optional)
@@ -68,6 +64,8 @@ pub struct UploadParams {
     pub last_modified: Option<i64>,
     /// Whether to overwrite existing file (creates new version)
     pub overwrite: bool,
+    /// Previous version ETag (optional)
+    pub previous_version: String,
     /// Task ID for linking with task queue
     pub task_id: String,
     /// Drive ID
@@ -256,8 +254,12 @@ impl Uploader {
         let request = UploadSessionRequest {
             uri: params.remote_uri.clone(),
             size: params.file_size as i64,
-            policy_id: params.policy_id.clone(),
+            policy_id: "".to_string(),
             last_modified: params.last_modified,
+            previous_version: params
+                .previous_version
+                .is_empty()
+                .then(|| params.previous_version.clone()),
             entity_type: if params.overwrite {
                 Some("version".to_string())
             } else {
@@ -265,16 +267,17 @@ impl Uploader {
             },
             mime_type: params.mime_type.clone(),
             metadata: None,
-            encryption_supported: Some(vec![
-                cloudreve_api::models::explorer::EncryptionCipher::Aes256Ctr,
-            ]),
+            encryption_supported: None,
+            // encryption_supported: Some(vec![
+            //     cloudreve_api::models::explorer::EncryptionCipher::Aes256Ctr,
+            // ]),
         };
 
         let credential = self
             .cr_client
             .create_upload_session(&request)
             .await
-            .map_err(|e| UploadError::SessionCreationFailed(e.to_string()))?;
+            .context("failed to create upload session")?;
 
         debug!(
             target: "uploader",

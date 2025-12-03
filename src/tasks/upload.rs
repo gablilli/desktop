@@ -253,6 +253,7 @@ impl<'a> UploadTask<'a> {
     async fn upload_file_with_uploader(&mut self) -> Result<()> {
         let local_file = self.local_file.as_ref().unwrap();
         let file_size = local_file.local_file_info.file_size.unwrap_or(0);
+        let is_new_file = self.inventory_meta.is_none();
 
         info!(
             target: "tasks::upload",
@@ -273,20 +274,22 @@ impl<'a> UploadTask<'a> {
 
         // Get storage policy ID from the credential in existing session or use default
         // For now, we'll need to get it from the file info or use a default
-        let policy_id = self.get_storage_policy_id().await?;
-
         // Create upload params
         let params = UploadParams {
             local_path: self.task.payload.local_path.clone(),
             remote_uri: uri,
-            policy_id,
             file_size,
             mime_type: None, // Could be detected from file extension
             last_modified: local_file
                 .local_file_info
                 .last_modified
                 .map(|t| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs() as i64),
-            overwrite: false, // TODO: Get from task config
+            overwrite: !is_new_file,
+            previous_version: self
+                .inventory_meta
+                .as_ref()
+                .map(|m| m.etag.clone())
+                .unwrap_or_default(),
             task_id: self.task.task_id.clone(),
             drive_id: self.drive_id.to_string(),
         };
@@ -311,31 +314,6 @@ impl<'a> UploadTask<'a> {
         self.finalize_upload().await?;
 
         Ok(())
-    }
-
-    /// Get storage policy ID for the upload
-    async fn get_storage_policy_id(&self) -> Result<String> {
-        // Try to get policy from inventory metadata
-        if let Some(ref meta) = self.inventory_meta {
-            if let Some(ref props) = meta.props {
-                if let Some(policy_id) = props.get("storage_policy_id").and_then(|v| v.as_str()) {
-                    return Ok(policy_id.to_string());
-                }
-            }
-        }
-
-        // Try to get from parent folder or use default
-        // For now, get the first available policy
-        let policies = self
-            .cr_client
-            .get_storage_policy_options()
-            .await
-            .context("failed to get storage policies")?;
-
-        policies
-            .first()
-            .map(|p| p.id.clone())
-            .ok_or_else(|| anyhow::anyhow!("No storage policies available"))
     }
 
     /// Finalize upload by updating local file placeholder

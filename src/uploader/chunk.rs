@@ -1,5 +1,6 @@
 //! Chunk-based upload logic with streaming support
 
+use crate::cfapi::placeholder::OpenOptions;
 use crate::inventory::InventoryDb;
 use crate::uploader::UploaderConfig;
 use crate::uploader::encrypt::EncryptionConfig;
@@ -7,16 +8,18 @@ use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::progress::{ChunkProgressInfo, ProgressCallback, ProgressUpdate};
 use crate::uploader::providers::{self, PolicyType};
 use crate::uploader::session::UploadSession;
+use anyhow::{Context, Result};
 use bytes::Bytes;
 use cloudreve_api::Client as CrClient;
 use futures::Stream;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use std::io;
+use std::os::windows::io::FromRawHandle;
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::task::{Context as TaskContext, Poll};
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, BufReader, ReadBuf, SeekFrom};
@@ -93,8 +96,14 @@ impl ChunkReader {
         offset: u64,
         size: u64,
         encryption: Option<EncryptionConfig>,
-    ) -> io::Result<Self> {
-        let file = File::open(path).await?;
+    ) -> Result<Self> {
+        let handle = OpenOptions::new()
+            .open(path)
+            .context("failed to open file")?
+            .win32_handle()
+            .context("failed to get win32 handle")?
+            .handle();
+        let file = unsafe { File::from_raw_handle(handle.0 as *mut _) };
         let mut reader = BufReader::with_capacity(STREAM_BUFFER_SIZE, file);
         reader.seek(SeekFrom::Start(offset)).await?;
 
@@ -116,7 +125,7 @@ impl ChunkReader {
 impl AsyncRead for ChunkReader {
     fn poll_read(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        cx: &mut TaskContext<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         if self.remaining == 0 {
@@ -188,7 +197,7 @@ impl ChunkStream {
         path: &Path,
         chunk: &ChunkInfo,
         encryption: Option<EncryptionConfig>,
-    ) -> io::Result<Self> {
+    ) -> Result<Self> {
         let reader = ChunkReader::new(path, chunk.offset, chunk.size, encryption).await?;
         Ok(Self::new(reader))
     }
@@ -197,7 +206,7 @@ impl ChunkStream {
 impl Stream for ChunkStream {
     type Item = Result<Bytes, io::Error>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.inner).poll_next(cx)
     }
 }
