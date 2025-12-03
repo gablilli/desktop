@@ -3,8 +3,8 @@
 //! Upyun uses form-based upload with policy and authorization
 
 use crate::uploader::chunk::{ChunkInfo, ChunkStream};
-use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::session::UploadSession;
+use anyhow::{bail, Context, Result};
 use reqwest::Client as HttpClient;
 use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
@@ -26,22 +26,19 @@ pub async fn upload_chunk(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // Upyun only supports single-chunk uploads
     if chunk.index != 0 {
-        return Err(UploadError::chunk_failed(
-            chunk.index,
-            "Upyun only supports single-chunk uploads",
-        ));
+        bail!("Upyun only supports single-chunk uploads (got chunk {})", chunk.index);
     }
 
     let url = session
         .upload_url()
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload URL"))?;
+        .context("no upload URL for Upyun")?;
 
     let policy = session
         .upload_policy()
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload policy"))?;
+        .context("no upload policy for Upyun")?;
 
     let credential = session.credential_string();
 
@@ -58,7 +55,7 @@ pub async fn upload_chunk(
     let file_part = Part::stream_with_length(body, chunk.size)
         .file_name("file")
         .mime_str("application/octet-stream")
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .context("failed to set MIME type for file part")?;
 
     let mut form = Form::new()
         .text("policy", policy.to_string())
@@ -75,7 +72,7 @@ pub async fn upload_chunk(
         .multipart(form)
         .send()
         .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .context("failed to upload to Upyun")?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -83,13 +80,10 @@ pub async fn upload_chunk(
 
         // Try to parse Upyun error
         if let Ok(error) = serde_json::from_str::<UpyunError>(&body) {
-            return Err(UploadError::upyun_error(error.code, error.message));
+            bail!("Upyun error ({}): {}", error.code, error.message);
         }
 
-        return Err(UploadError::chunk_failed(
-            chunk.index,
-            format!("HTTP {}: {}", status, body),
-        ));
+        bail!("Upyun upload failed: HTTP {}: {}", status, body);
     }
 
     Ok(None)

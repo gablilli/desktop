@@ -401,21 +401,24 @@ pub struct UploadCredential {
     pub session_id: String,
     pub expires: i64,
     pub chunk_size: i64,
-    pub upload_urls: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_urls: Option<Vec<String>>,
+    #[serde(default)]
     pub credential: String,
-    #[serde(rename = "uploadID")]
+    #[serde(default)]
     pub upload_id: String,
-    pub callback: String,
-    pub ak: String,
+    pub callback_secret: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ak: Option<String>,
     #[serde(rename = "keyTime")]
-    pub key_time: String,
-    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_time: Option<String>,
     #[serde(rename = "completeURL")]
-    pub complete_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub complete_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub storage_policy: Option<StoragePolicy>,
     pub uri: String,
-    pub callback_secret: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

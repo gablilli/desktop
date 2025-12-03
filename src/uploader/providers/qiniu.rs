@@ -1,8 +1,8 @@
 //! Qiniu Cloud Storage upload implementation
 
 use crate::uploader::chunk::{ChunkInfo, ChunkStream};
-use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::session::UploadSession;
+use anyhow::{bail, Context, Result};
 use reqwest::{Body, Client as HttpClient};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
@@ -44,10 +44,10 @@ pub async fn upload_chunk(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     let base_url = session
         .upload_url()
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload URL"))?;
+        .context("no upload URL for Qiniu")?;
 
     // Qiniu uses 1-based part numbers in URL
     let url = format!("{}/{}", base_url, chunk.index + 1);
@@ -71,7 +71,7 @@ pub async fn upload_chunk(
         .body(body)
         .send()
         .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .with_context(|| format!("failed to upload chunk {} to Qiniu", chunk.index))?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -79,22 +79,17 @@ pub async fn upload_chunk(
 
         // Try to parse Qiniu error
         if let Ok(error) = serde_json::from_str::<QiniuError>(&body) {
-            return Err(UploadError::chunk_failed(
-                chunk.index,
-                format!("Qiniu error: {}", error.error),
-            ));
+            bail!("Qiniu error: {}", error.error);
         }
 
-        return Err(UploadError::chunk_failed(
-            chunk.index,
-            format!("HTTP {}: {}", status, body),
-        ));
+        bail!("Qiniu chunk {} upload failed: HTTP {}: {}", chunk.index, status, body);
     }
 
     // Parse response to get ETag
-    let chunk_response: QiniuChunkResponse = response.json().await.map_err(|e| {
-        UploadError::chunk_failed(chunk.index, format!("Failed to parse response: {}", e))
-    })?;
+    let chunk_response: QiniuChunkResponse = response
+        .json()
+        .await
+        .context("failed to parse Qiniu response")?;
 
     Ok(Some(chunk_response.etag))
 }
@@ -103,10 +98,10 @@ pub async fn upload_chunk(
 pub async fn complete_upload(
     http_client: &HttpClient,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     let url = session
         .upload_url()
-        .ok_or_else(|| UploadError::CompletionFailed("No upload URL".to_string()))?;
+        .context("no upload URL for Qiniu completion")?;
 
     let credential = session.credential_string();
 
@@ -141,7 +136,7 @@ pub async fn complete_upload(
         .json(&request)
         .send()
         .await
-        .map_err(|e| UploadError::CompletionFailed(e.to_string()))?;
+        .context("failed to complete Qiniu upload")?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -149,16 +144,10 @@ pub async fn complete_upload(
 
         // Try to parse Qiniu error
         if let Ok(error) = serde_json::from_str::<QiniuError>(&body) {
-            return Err(UploadError::CompletionFailed(format!(
-                "Qiniu error: {}",
-                error.error
-            )));
+            bail!("Qiniu completion error: {}", error.error);
         }
 
-        return Err(UploadError::CompletionFailed(format!(
-            "HTTP {}: {}",
-            status, body
-        )));
+        bail!("Qiniu completion failed: HTTP {}: {}", status, body);
     }
 
     Ok(())

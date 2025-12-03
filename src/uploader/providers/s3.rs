@@ -3,8 +3,8 @@
 //! Supports: OSS, COS, S3, KS3, OBS
 
 use crate::uploader::chunk::{ChunkInfo, ChunkProgress, ChunkStream};
-use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::session::UploadSession;
+use anyhow::{bail, Context, Result};
 use cloudreve_api::Client as CrClient;
 use cloudreve_api::api::ExplorerApi;
 use reqwest::{Body, Client as HttpClient};
@@ -17,10 +17,10 @@ pub async fn upload_chunk_s3(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     let url = session
         .upload_url_for_chunk(chunk.index)
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload URL for chunk"))?;
+        .with_context(|| format!("no upload URL for chunk {}", chunk.index))?;
 
     debug!(
         target: "uploader::s3",
@@ -40,12 +40,12 @@ pub async fn upload_chunk_s3(
         .body(body)
         .send()
         .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .with_context(|| format!("failed to upload chunk {}", chunk.index))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(parse_s3_error(chunk.index, status.as_u16(), &body));
+        bail!("chunk {} upload failed: {}", chunk.index, format_s3_error(status.as_u16(), &body));
     }
 
     // Extract ETag from response headers
@@ -64,7 +64,7 @@ pub async fn upload_chunk_oss(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // OSS uses the same mechanism as S3
     upload_chunk_s3(http_client, chunk, stream, session).await
 }
@@ -75,7 +75,7 @@ pub async fn upload_chunk_cos(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // COS uses the same mechanism as S3
     upload_chunk_s3(http_client, chunk, stream, session).await
 }
@@ -86,7 +86,7 @@ pub async fn upload_chunk_obs(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // OBS uses the same mechanism as S3
     upload_chunk_s3(http_client, chunk, stream, session).await
 }
@@ -95,7 +95,7 @@ pub async fn upload_chunk_obs(
 pub async fn complete_upload_oss(
     http_client: &HttpClient,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     let url = session.complete_url();
 
     debug!(
@@ -111,12 +111,12 @@ pub async fn complete_upload_oss(
         .header("x-oss-complete-all", "yes")
         .send()
         .await
-        .map_err(|e| UploadError::CompletionFailed(e.to_string()))?;
+        .context("failed to complete OSS upload")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(parse_s3_completion_error(status.as_u16(), &body));
+        bail!("failed to complete OSS upload: {}", format_s3_error(status.as_u16(), &body));
     }
 
     Ok(())
@@ -126,7 +126,7 @@ pub async fn complete_upload_oss(
 pub async fn complete_upload_s3like(
     http_client: &HttpClient,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     let url = session.complete_url();
     let body = build_complete_multipart_xml(&session.chunk_progress);
 
@@ -149,12 +149,12 @@ pub async fn complete_upload_s3like(
     let response = request
         .send()
         .await
-        .map_err(|e| UploadError::CompletionFailed(e.to_string()))?;
+        .context("failed to complete S3-like upload")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(parse_s3_completion_error(status.as_u16(), &body));
+        bail!("failed to complete S3-like upload: {}", format_s3_error(status.as_u16(), &body));
     }
 
     Ok(())
@@ -164,7 +164,7 @@ pub async fn complete_upload_s3like(
 pub async fn complete_upload_obs(
     http_client: &HttpClient,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     let url = session.complete_url();
     let body = build_complete_multipart_xml(&session.chunk_progress);
 
@@ -180,7 +180,7 @@ pub async fn complete_upload_obs(
         .body(body)
         .send()
         .await
-        .map_err(|e| UploadError::CompletionFailed(e.to_string()))?;
+        .context("failed to complete OBS upload")?;
 
     if !response.status().is_success() {
         let status = response.status();
@@ -194,11 +194,11 @@ pub async fn complete_upload_obs(
                 code: String,
             }
             if let Ok(err) = serde_json::from_str::<ObsError>(&body) {
-                return Err(UploadError::s3_error(err.code, err.message));
+                bail!("OBS error ({}): {}", err.code, err.message);
             }
         }
 
-        return Err(parse_s3_completion_error(status.as_u16(), &body));
+        bail!("failed to complete OBS upload: {}", format_s3_error(status.as_u16(), &body));
     }
 
     Ok(())
@@ -209,7 +209,7 @@ pub async fn callback_s3like(
     cr_client: &Arc<CrClient>,
     session: &UploadSession,
     policy_type: &str,
-) -> UploadResult<()> {
+) -> Result<()> {
     debug!(
         target: "uploader::s3",
         session_id = session.session_id(),
@@ -220,7 +220,7 @@ pub async fn callback_s3like(
     cr_client
         .complete_s3_upload(policy_type, session.session_id(), session.callback_secret())
         .await
-        .map_err(|e| UploadError::CallbackFailed(e.to_string()))?;
+        .context("upload callback failed")?;
 
     Ok(())
 }
@@ -242,30 +242,16 @@ fn build_complete_multipart_xml(chunks: &[ChunkProgress]) -> String {
     xml
 }
 
-/// Parse S3 error response
-fn parse_s3_error(chunk_index: usize, status: u16, body: &str) -> UploadError {
+/// Format S3 error response for display
+fn format_s3_error(status: u16, body: &str) -> String {
     // Try to parse XML error
     if let Some(code) = extract_xml_element(body, "Code") {
         if let Some(message) = extract_xml_element(body, "Message") {
-            return UploadError::ChunkUploadFailed {
-                chunk_index,
-                message: format!("S3 error ({}): {}", code, message),
-            };
+            return format!("S3 error ({}): {}", code, message);
         }
     }
 
-    UploadError::chunk_failed(chunk_index, format!("HTTP {}: {}", status, body))
-}
-
-/// Parse S3 completion error response
-fn parse_s3_completion_error(status: u16, body: &str) -> UploadError {
-    if let Some(code) = extract_xml_element(body, "Code") {
-        if let Some(message) = extract_xml_element(body, "Message") {
-            return UploadError::s3_error(code, message);
-        }
-    }
-
-    UploadError::CompletionFailed(format!("HTTP {}: {}", status, body))
+    format!("HTTP {}: {}", status, body)
 }
 
 /// Simple XML element extraction (for error parsing)

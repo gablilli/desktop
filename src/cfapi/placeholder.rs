@@ -93,13 +93,22 @@ impl OwnedPlaceholderHandle {
 impl Drop for OwnedPlaceholderHandle {
     fn drop(&mut self) {
         match self.handle_type {
-            PlaceholderHandleType::CfApi => unsafe { CfCloseHandle(self.handle) },
+            PlaceholderHandleType::CfApi => unsafe { 
+                tracing::trace!(target: "cfapi::placeholder", "Drop cf handle: {:?}", self.handle);
+                CfCloseHandle(self.handle)
+             },
             PlaceholderHandleType::Win32 => unsafe {
+                tracing::trace!(target: "cfapi::placeholder", "Drop win32 handle: {:?}", self.handle);
                 _ = CloseHandle(self.handle);
             },
         }
     }
 }
+
+/// Safety: Windows handles are safe to send across threads
+unsafe impl Send for OwnedPlaceholderHandle {}
+/// Safety: Windows handles can be safely shared between threads (read operations are thread-safe)
+unsafe impl Sync for OwnedPlaceholderHandle {}
 
 /// Holds a Win32 handle from the protected handle.
 ///
@@ -139,7 +148,8 @@ impl AsRawHandle for ArcWin32Handle {
 impl Drop for ArcWin32Handle {
     fn drop(&mut self) {
         if self.protected_handle != INVALID_HANDLE_VALUE {
-            unsafe { CfReleaseProtectedHandle(self.protected_handle) };
+        tracing::trace!(target: "cfapi::placeholder", win32_handle = ?self.win32_handle, protected_handle = ?self.protected_handle, "Drop cf protected handle");
+        unsafe { CfReleaseProtectedHandle(self.protected_handle) };
         }
     }
 }
@@ -799,6 +809,11 @@ impl From<ReadType> for CF_PLACEHOLDER_RANGE_INFO_CLASS {
 pub struct Placeholder {
     handle: OwnedPlaceholderHandle,
 }
+
+/// Safety: Placeholder only contains OwnedPlaceholderHandle which is Send
+unsafe impl Send for Placeholder {}
+/// Safety: Placeholder only contains OwnedPlaceholderHandle which is Sync
+unsafe impl Sync for Placeholder {}
 
 impl Placeholder {
     /// Create a placeholder from a raw handle.

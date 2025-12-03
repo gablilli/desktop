@@ -78,7 +78,7 @@ impl UploadSession {
             (0..num_chunks).map(|i| ChunkProgress::new(i)).collect();
 
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: credential.session_id.clone(),
             task_id,
             drive_id,
             local_path,
@@ -196,18 +196,19 @@ impl UploadSession {
     pub fn upload_url_for_chunk(&self, chunk_index: usize) -> Option<&str> {
         self.credential
             .upload_urls
-            .get(chunk_index)
+            .as_ref()
+            .and_then(|urls| urls.get(chunk_index))
             .map(|s| s.as_str())
     }
 
     /// Get the first upload URL (for providers that use single URL)
     pub fn upload_url(&self) -> Option<&str> {
-        self.credential.upload_urls.first().map(|s| s.as_str())
+        self.credential.upload_urls.as_ref().and_then(|urls| urls.first().map(|s| s.as_str()))
     }
 
     /// Get the completion URL for multipart uploads
     pub fn complete_url(&self) -> &str {
-        &self.credential.complete_url
+        self.credential.complete_url.as_deref().unwrap_or_default()
     }
 
     /// Get the callback secret

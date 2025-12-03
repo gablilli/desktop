@@ -10,7 +10,7 @@ mod progress;
 mod providers;
 mod session;
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 pub use chunk::{ChunkProgress, ChunkUploader};
 pub use error::{UploadError, UploadResult};
 pub use progress::{ProgressCallback, ProgressUpdate};
@@ -44,7 +44,7 @@ impl Default for UploaderConfig {
             max_retries: 3,
             retry_base_delay: Duration::from_secs(1),
             retry_max_delay: Duration::from_secs(30),
-            request_timeout: Duration::from_secs(300),
+            request_timeout: Duration::from_secs(60),
         }
     }
 }
@@ -94,7 +94,7 @@ impl Uploader {
         config: UploaderConfig,
     ) -> Self {
         let http_client = HttpClient::builder()
-            .timeout(config.request_timeout)
+            .connect_timeout(config.request_timeout)
             .build()
             .expect("Failed to create HTTP client");
 
@@ -126,7 +126,7 @@ impl Uploader {
         &self,
         params: UploadParams,
         progress: P,
-    ) -> UploadResult<()> {
+    ) -> Result<()> {
         info!(
             target: "uploader",
             local_path = %params.local_path.display(),
@@ -188,7 +188,7 @@ impl Uploader {
                         local_path = %params.local_path.display(),
                         "Upload cancelled"
                     );
-                    Err(UploadError::Cancelled)
+                    Err(UploadError::Cancelled.into())
                 } else {
                     error!(
                         target: "uploader",
@@ -196,7 +196,7 @@ impl Uploader {
                         error = %e,
                         "Upload failed"
                     );
-                    Err(e)
+                    Err(e.into())
                 }
             }
         }
@@ -248,7 +248,7 @@ impl Uploader {
     }
 
     /// Create a new upload session via Cloudreve API
-    async fn create_session(&self, params: &UploadParams) -> UploadResult<UploadSession> {
+    async fn create_session(&self, params: &UploadParams) -> Result<UploadSession> {
         use cloudreve_api::models::explorer::UploadSessionRequest;
 
         let request = UploadSessionRequest {
@@ -317,7 +317,7 @@ impl Uploader {
     }
 
     /// Complete the upload (provider-specific finalization)
-    async fn complete_upload(&self, session: &UploadSession) -> UploadResult<()> {
+    async fn complete_upload(&self, session: &UploadSession) -> Result<()> {
         let policy_type = session.policy_type();
         debug!(
             target: "uploader",

@@ -7,8 +7,8 @@ mod s3;
 mod upyun;
 
 use crate::uploader::chunk::{ChunkInfo, ChunkStream};
-use crate::uploader::error::UploadResult;
 use crate::uploader::session::UploadSession;
+use anyhow::Result;
 use cloudreve_api::Client as CrClient;
 use cloudreve_api::models::explorer::PolicyType as ApiPolicyType;
 use reqwest::Client as HttpClient;
@@ -120,7 +120,7 @@ pub async fn upload_chunk(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     match policy_type {
         PolicyType::Local | PolicyType::Remote => {
             local::upload_chunk(http_client, cr_client, chunk, stream, session).await
@@ -142,7 +142,7 @@ pub async fn complete_upload(
     http_client: &HttpClient,
     cr_client: &Arc<CrClient>,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     let policy_type = session.policy_type();
 
     match policy_type {

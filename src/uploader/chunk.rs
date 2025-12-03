@@ -1,6 +1,6 @@
 //! Chunk-based upload logic with streaming support
 
-use crate::cfapi::placeholder::OpenOptions;
+use crate::cfapi::placeholder::{ArcWin32Handle, OpenOptions, Placeholder};
 use crate::inventory::InventoryDb;
 use crate::uploader::UploaderConfig;
 use crate::uploader::encrypt::EncryptionConfig;
@@ -15,7 +15,8 @@ use futures::Stream;
 use reqwest::Client as HttpClient;
 use serde::{Deserialize, Serialize};
 use std::io;
-use std::os::windows::io::FromRawHandle;
+use std::mem::ManuallyDrop;
+use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
 use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -83,6 +84,8 @@ const STREAM_BUFFER_SIZE: usize = 64 * 1024;
 /// optionally applying encryption on-the-fly.
 pub struct ChunkReader {
     reader: BufReader<File>,
+    // handle: ArcWin32Handle,
+    // placeholder: Placeholder,
     encryption: Option<EncryptionConfig>,
     start_offset: u64,
     position: u64,
@@ -97,15 +100,17 @@ impl ChunkReader {
         size: u64,
         encryption: Option<EncryptionConfig>,
     ) -> Result<Self> {
-        let handle = OpenOptions::new()
-            .open(path)
-            .context("failed to open file")?
-            .win32_handle()
-            .context("failed to get win32 handle")?
-            .handle();
-        let file = unsafe { File::from_raw_handle(handle.0 as *mut _) };
+        // let placeholder = OpenOptions::new()
+        // .exclusive()
+        //     .open(path)
+        //     .context("failed to open file")?;
+        // let protected_handle = placeholder
+        //     .win32_handle()
+        //     .context("failed to get win32 handle")?;
+        let file = File::open(path).await.context("failed to open file")?;
         let mut reader = BufReader::with_capacity(STREAM_BUFFER_SIZE, file);
         reader.seek(SeekFrom::Start(offset)).await?;
+
 
         Ok(Self {
             reader,
@@ -121,6 +126,7 @@ impl ChunkReader {
         self.position + self.remaining
     }
 }
+
 
 impl AsyncRead for ChunkReader {
     fn poll_read(
@@ -142,6 +148,11 @@ impl AsyncRead for ChunkReader {
 
         match reader.poll_read(cx, &mut limited_buf) {
             Poll::Ready(Ok(())) => {
+                tracing::trace!(
+                    target: "uploader::chunk",
+                    bytes_read = limited_buf.filled().len() - before,
+                    "Bytes read"
+                );
                 let bytes_read = limited_buf.filled().len() - before;
                 if bytes_read == 0 {
                     // EOF reached
@@ -172,8 +183,21 @@ impl AsyncRead for ChunkReader {
 
                 Poll::Ready(Ok(()))
             }
-            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Pending => Poll::Pending,
+            Poll::Ready(Err(e)) => {
+                tracing::error!(
+                    target: "uploader::chunk",
+                    error = ?e,
+                    "Error reading chunk"
+                );
+                Poll::Ready(Err(e))
+            }
+            Poll::Pending => {
+                tracing::trace!(
+                    target: "uploader::chunk",
+                    "Chunk reader is pending"
+                );
+                Poll::Pending
+            }
         }
     }
 }
@@ -243,7 +267,7 @@ impl ChunkUploader {
         inventory: &InventoryDb,
         progress: &P,
         cancel_token: &CancellationToken,
-    ) -> UploadResult<()> {
+    ) -> Result<()> {
         info!(
             target: "uploader::chunk",
             local_path = %local_path.display(),
@@ -281,7 +305,7 @@ impl ChunkUploader {
         for chunk_index in pending_chunks {
             // Check for cancellation
             if cancel_token.is_cancelled() {
-                return Err(UploadError::Cancelled);
+                return Err(anyhow::anyhow!("Upload cancelled"));
             }
 
             // Get chunk info
@@ -330,12 +354,12 @@ impl ChunkUploader {
         session: &UploadSession,
         encryption: Option<EncryptionConfig>,
         cancel_token: &CancellationToken,
-    ) -> UploadResult<Option<String>> {
+    ) -> Result<Option<String>> {
         let mut last_error = None;
 
         for attempt in 0..=self.config.max_retries {
             if cancel_token.is_cancelled() {
-                return Err(UploadError::Cancelled);
+                return Err(anyhow::anyhow!("Upload cancelled"));
             }
 
             if attempt > 0 {
@@ -351,7 +375,7 @@ impl ChunkUploader {
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {}
                     _ = cancel_token.cancelled() => {
-                        return Err(UploadError::Cancelled);
+                        return Err(anyhow::anyhow!("Upload cancelled"));
                     }
                 }
             }
@@ -374,11 +398,11 @@ impl ChunkUploader {
                     return Ok(etag);
                 }
                 Err(e) => {
-                    if !e.is_retryable() || attempt == self.config.max_retries {
+                    if attempt == self.config.max_retries {
                         error!(
                             target: "uploader::chunk",
                             chunk = chunk.index,
-                            error = %e,
+                            error = ?e,
                             attempt,
                             "Chunk upload failed"
                         );
@@ -387,7 +411,7 @@ impl ChunkUploader {
                     warn!(
                         target: "uploader::chunk",
                         chunk = chunk.index,
-                        error = %e,
+                        error = ?e,
                         attempt,
                         "Chunk upload failed, will retry"
                     );
@@ -396,10 +420,7 @@ impl ChunkUploader {
             }
         }
 
-        Err(last_error.unwrap_or(UploadError::MaxRetriesExceeded {
-            chunk_index: chunk.index,
-            max_retries: self.config.max_retries,
-        }))
+        Err(anyhow::anyhow!("Chunk upload failed, max retries exceeded"))
     }
 
     /// Upload a single chunk (provider-specific)
@@ -408,7 +429,7 @@ impl ChunkUploader {
         chunk: &ChunkInfo,
         stream: ChunkStream,
         session: &UploadSession,
-    ) -> UploadResult<Option<String>> {
+    ) -> Result<Option<String>> {
         providers::upload_chunk(
             &self.http_client,
             &self.cr_client,

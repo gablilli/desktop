@@ -26,7 +26,7 @@ impl ClientConfig {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
-            timeout_seconds: 30,
+            timeout_seconds: 60,
         }
     }
 
@@ -129,7 +129,7 @@ impl Client {
     /// Create a new API client
     pub fn new(config: ClientConfig) -> Self {
         let http_client = HttpClient::builder()
-            .timeout(std::time::Duration::from_secs(config.timeout_seconds))
+            .connect_timeout(std::time::Duration::from_secs(config.timeout_seconds))
             .build()
             .expect("Failed to create HTTP client");
 

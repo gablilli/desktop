@@ -308,8 +308,8 @@ impl<'a> UploadTask<'a> {
         uploader
             .upload(params, progress)
             .await
-            .map_err(|e| anyhow::anyhow!("Upload failed: {}", e))?;
-
+            .context("failed to upload file")?;
+        
         // Update local file placeholder status after successful upload
         self.finalize_upload().await?;
 

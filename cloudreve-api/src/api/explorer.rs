@@ -192,7 +192,7 @@ pub trait ExplorerApi {
         session_id: &str,
         chunk_index: usize,
         data: Bytes,
-    ) -> ApiResult<UploadCredential>;
+    ) -> ApiResult<()>;
 
     /// Upload chunk using streaming body (for large chunks)
     async fn upload_chunk_stream(
@@ -201,7 +201,7 @@ pub trait ExplorerApi {
         chunk_index: usize,
         content_length: u64,
         body: Body,
-    ) -> ApiResult<UploadCredential>;
+    ) -> ApiResult<()>;
 
     /// Delete upload session
     async fn delete_upload_session(&self, request: &DeleteUploadSessionService) -> ApiResult<()>;
@@ -562,7 +562,7 @@ impl ExplorerApi for Client {
         &self,
         request: &UploadSessionRequest,
     ) -> ApiResult<UploadCredential> {
-        self.post(
+        self.put(
             "/file/upload",
             request,
             RequestOptions::new().with_purchase_ticket(),
@@ -575,7 +575,7 @@ impl ExplorerApi for Client {
         session_id: &str,
         chunk_index: usize,
         data: Bytes,
-    ) -> ApiResult<UploadCredential> {
+    ) -> ApiResult<()> {
         let url = self.build_url(&format!("/file/upload/{}/{}", session_id, chunk_index));
         let token = self.get_access_token().await?;
 
@@ -594,9 +594,7 @@ impl ExplorerApi for Client {
             return Err(crate::error::ApiError::from_response(api_response));
         }
 
-        api_response.data.ok_or_else(|| {
-            crate::error::ApiError::Other("API returned success but no data".to_string())
-        })
+        Ok(())
     }
 
     async fn upload_chunk_stream(
@@ -605,7 +603,7 @@ impl ExplorerApi for Client {
         chunk_index: usize,
         content_length: u64,
         body: Body,
-    ) -> ApiResult<UploadCredential> {
+    ) -> ApiResult<()> {
         let url = self.build_url(&format!("/file/upload/{}/{}", session_id, chunk_index));
         let token = self.get_access_token().await?;
 
@@ -619,15 +617,13 @@ impl ExplorerApi for Client {
             .send()
             .await?;
 
-        let api_response: crate::error::ApiResponse<UploadCredential> = response.json().await?;
+        let api_response: crate::error::ApiResponse<()> = response.json().await?;
 
         if api_response.code != 0 {
             return Err(crate::error::ApiError::from_response(api_response));
         }
 
-        api_response.data.ok_or_else(|| {
-            crate::error::ApiError::Other("API returned success but no data".to_string())
-        })
+        Ok(())
     }
 
     async fn delete_upload_session(&self, request: &DeleteUploadSessionService) -> ApiResult<()> {

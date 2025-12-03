@@ -1,8 +1,8 @@
 //! OneDrive upload implementation
 
 use crate::uploader::chunk::{ChunkInfo, ChunkStream};
-use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::session::UploadSession;
+use anyhow::{bail, Context, Result};
 use cloudreve_api::Client as CrClient;
 use cloudreve_api::api::ExplorerApi;
 use reqwest::{Body, Client as HttpClient};
@@ -48,15 +48,15 @@ pub async fn upload_chunk(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // OneDrive doesn't support empty files
     if session.file_size == 0 {
-        return Err(UploadError::OneDriveEmptyFile);
+        bail!("OneDrive does not support empty file uploads");
     }
 
     let url = session
         .upload_url()
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload URL"))?;
+        .context("no upload URL for OneDrive")?;
 
     // Calculate byte range
     let range_start = chunk.offset;
@@ -80,7 +80,7 @@ pub async fn upload_chunk(
         .body(body)
         .send()
         .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .with_context(|| format!("failed to upload chunk {} to OneDrive", chunk.index))?;
 
     let status = response.status();
 
@@ -102,50 +102,44 @@ pub async fn upload_chunk(
                     chunk = chunk.index,
                     "Fragment overlap detected, chunk may be already uploaded"
                 );
-                return Err(UploadError::OneDriveChunkOverlap(error.error.message));
+                bail!("OneDrive chunk overlap: {}", error.error.message);
             }
         }
 
-        return Err(UploadError::chunk_failed(
-            chunk.index,
-            format!(
-                "OneDrive error ({}): {}",
-                error.error.code, error.error.message
-            ),
-        ));
+        bail!(
+            "OneDrive error ({}): {}",
+            error.error.code, error.error.message
+        );
     }
 
-    Err(UploadError::chunk_failed(
-        chunk.index,
-        format!("HTTP {}: {}", status, body),
-    ))
+    bail!("OneDrive chunk {} upload failed: HTTP {}: {}", chunk.index, status, body)
 }
 
 /// Query OneDrive session status to get next expected range
 pub async fn query_session_status(
     http_client: &HttpClient,
     session: &UploadSession,
-) -> UploadResult<Vec<String>> {
+) -> Result<Vec<String>> {
     let url = session
         .upload_url()
-        .ok_or_else(|| UploadError::Other("No upload URL".to_string()))?;
+        .context("no upload URL for OneDrive")?;
 
     let response = http_client
         .get(url)
         .send()
         .await
-        .map_err(|e| UploadError::HttpError(e.to_string()))?;
+        .context("failed to query OneDrive session status")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(UploadError::Other(format!("HTTP {}: {}", status, body)));
+        bail!("failed to query OneDrive session: HTTP {}: {}", status, body);
     }
 
     let chunk_response: OneDriveChunkResponse = response
         .json()
         .await
-        .map_err(|e| UploadError::Other(format!("Failed to parse response: {}", e)))?;
+        .context("failed to parse OneDrive session response")?;
 
     Ok(chunk_response.next_expected_ranges)
 }
@@ -154,7 +148,7 @@ pub async fn query_session_status(
 pub async fn complete_upload(
     cr_client: &Arc<CrClient>,
     session: &UploadSession,
-) -> UploadResult<()> {
+) -> Result<()> {
     debug!(
         target: "uploader::onedrive",
         session_id = session.session_id(),
@@ -164,7 +158,7 @@ pub async fn complete_upload(
     cr_client
         .complete_onedrive_upload(session.session_id(), session.callback_secret())
         .await
-        .map_err(|e| UploadError::CallbackFailed(e.to_string()))?;
+        .context("OneDrive upload callback failed")?;
 
     Ok(())
 }

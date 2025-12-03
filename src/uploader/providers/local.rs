@@ -4,8 +4,8 @@
 //! For Remote policy: uploads chunks to slave nodes
 
 use crate::uploader::chunk::{ChunkInfo, ChunkStream};
-use crate::uploader::error::{UploadError, UploadResult};
 use crate::uploader::session::UploadSession;
+use anyhow::{Context, Result};
 use cloudreve_api::Client as CrClient;
 use cloudreve_api::api::ExplorerApi;
 use reqwest::{Body, Client as HttpClient};
@@ -19,7 +19,7 @@ pub async fn upload_chunk(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     // Check if this is a remote (slave) upload
     if let Some(url) = session.upload_url() {
         if !url.is_empty() && !url.starts_with("/") {
@@ -38,7 +38,7 @@ async fn upload_chunk_local(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     debug!(
         target: "uploader::local",
         chunk = chunk.index,
@@ -51,8 +51,7 @@ async fn upload_chunk_local(
 
     cr_client
         .upload_chunk_stream(session.session_id(), chunk.index, chunk.size, body)
-        .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .await.context("failed to upload chunk")?;
 
     Ok(None)
 }
@@ -63,10 +62,10 @@ async fn upload_chunk_remote(
     chunk: &ChunkInfo,
     stream: ChunkStream,
     session: &UploadSession,
-) -> UploadResult<Option<String>> {
+) -> Result<Option<String>> {
     let url = session
         .upload_url()
-        .ok_or_else(|| UploadError::chunk_failed(chunk.index, "No upload URL"))?;
+        .context("no upload URL for remote upload")?;
 
     debug!(
         target: "uploader::remote",
@@ -89,15 +88,12 @@ async fn upload_chunk_remote(
         .body(body)
         .send()
         .await
-        .map_err(|e| UploadError::chunk_failed(chunk.index, e.to_string()))?;
+        .context("failed to upload chunk")?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(UploadError::chunk_failed(
-            chunk.index,
-            format!("HTTP {}: {}", status, body),
-        ));
+        return Err(anyhow::anyhow!("HTTP {}: {}", status, body));
     }
 
     // Parse response to check for errors
@@ -111,10 +107,7 @@ async fn upload_chunk_remote(
     let response_text = response.text().await.unwrap_or_default();
     if let Ok(resp) = serde_json::from_str::<SlaveResponse>(&response_text) {
         if resp.code != 0 {
-            return Err(UploadError::chunk_failed(
-                chunk.index,
-                format!("Slave error ({}): {}", resp.code, resp.msg),
-            ));
+            return Err(anyhow::anyhow!("Slave error ({}): {}", resp.code, resp.msg));
         }
     }
 
