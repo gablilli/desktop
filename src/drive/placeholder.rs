@@ -104,19 +104,27 @@ impl CrPlaceholder {
                     .context("failed to convert to placeholder")?;
             }
 
-            // TODO: Update metadata
-            
+            // Update file metadata
+            let mut upload_options = UpdateOptions::default().mark_in_sync().metadata(
+                Metadata::default()
+                    .size(file_meta.size as u64)
+                    .changed(FileTime::from_unix_time(file_meta.updated_at)?)
+                    .written(FileTime::from_unix_time(file_meta.updated_at)?)
+                    .created(FileTime::from_unix_time(file_meta.created_at)?),
+            );
+
             if self.options & CrPlaceholderOptions::InvalidateAllRange as u32 != 0 {
                 tracing::debug!(target: "drive::placeholder", local_path = %self.local_path.display(), "Invalidating all range");
-                let mut local_handle = OpenOptions::new()
-                    .write_access()
-                    .exclusive()
-                    .open(&self.local_path)
-                    .context("failed to open local file")?;
-                local_handle
-                    .update(UpdateOptions::default().dehydrate(), None)
-                    .context("failed to invalidate all range")?;
+                upload_options = upload_options.dehydrate();
             }
+            let mut local_handle = OpenOptions::new()
+                .write_access()
+                .exclusive()
+                .open(&self.local_path)
+                .context("failed to open local file")?;
+            local_handle
+                .update(upload_options, None)
+                .context("failed to invalidate all range")?;
         } else {
             // Create placeholder file/directory
             let relative_path = self
@@ -125,20 +133,24 @@ impl CrPlaceholder {
                 .context("failed to get relative path")?;
             tracing::trace!(target: "drive::placeholder", relative_path = %relative_path.to_string_lossy(), "Relative path");
             let primary_entity = OsString::from(file_meta.etag.clone());
-            let placeholder = PlaceholderFile::new(self.local_path.file_name().context("failed to get file name")?)
-                .metadata(
-                    match file_meta.is_folder {
-                        true => Metadata::directory(),
-                        false => Metadata::file(),
-                    }
-                    .size(file_meta.size as u64)
-                    .changed(FileTime::from_unix_time(file_meta.updated_at)?)
-                    .written(FileTime::from_unix_time(file_meta.updated_at)?)
-                    .created(FileTime::from_unix_time(file_meta.created_at)?),
-                )
-                .mark_in_sync()
-                .overwrite()
-                .blob(primary_entity.into_encoded_bytes());
+            let placeholder = PlaceholderFile::new(
+                self.local_path
+                    .file_name()
+                    .context("failed to get file name")?,
+            )
+            .metadata(
+                match file_meta.is_folder {
+                    true => Metadata::directory(),
+                    false => Metadata::file(),
+                }
+                .size(file_meta.size as u64)
+                .changed(FileTime::from_unix_time(file_meta.updated_at)?)
+                .written(FileTime::from_unix_time(file_meta.updated_at)?)
+                .created(FileTime::from_unix_time(file_meta.created_at)?),
+            )
+            .mark_in_sync()
+            .overwrite()
+            .blob(primary_entity.into_encoded_bytes());
             let parent_path: &std::path::Path = self
                 .local_path
                 .parent()
