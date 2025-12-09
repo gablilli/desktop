@@ -426,6 +426,7 @@ impl ChunkUploader {
 
         for _ in 0..concurrency {
             if let Some(chunk) = pool_state.next_chunk() {
+                pool_state.worker_started();
                 let handle = self.spawn_chunk_worker(
                     local_path.clone(),
                     chunk,
@@ -608,13 +609,17 @@ impl UploadPoolState {
         }
     }
 
+    /// Increment active worker count - call before spawning a worker
+    fn worker_started(&self) {
+        self.active_workers.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// Get the next chunk to upload, if any
     fn next_chunk(&self) -> Option<ChunkInfo> {
         // Use try_lock to avoid blocking in async context
         // If we can't get the lock, another worker is getting a chunk
         if let Ok(mut chunks) = self.pending_chunks.try_lock() {
             if !chunks.is_empty() {
-                self.active_workers.fetch_add(1, Ordering::SeqCst);
                 return Some(chunks.remove(0));
             }
         }
