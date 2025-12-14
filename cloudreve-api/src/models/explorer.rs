@@ -480,7 +480,7 @@ pub struct UploadSessionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encryption_supported: Option<Vec<EncryptionCipher>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_version: Option<String>,
+    pub previous: Option<String>,
 }
 
 /// Metadata key constants

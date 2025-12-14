@@ -280,10 +280,11 @@ impl Uploader {
             size: params.file_size as i64,
             policy_id: "".to_string(),
             last_modified: params.last_modified,
-            previous_version: params
-                .previous_version
-                .is_empty()
-                .then(|| params.previous_version.clone()),
+            previous: if params.previous_version.is_empty() {
+                None
+            } else {
+                Some(params.previous_version.clone())
+            },
             entity_type: if params.overwrite {
                 Some("version".to_string())
             } else {
