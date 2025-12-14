@@ -1,4 +1,4 @@
-use crate::client::{Client, RequestOptions};
+use crate::client::{Client, RequestOptions, CR_HEADER_PREFIX};
 use crate::error::ApiResult;
 use crate::models::common::ListAllRes;
 use crate::models::explorer::*;
@@ -655,5 +655,207 @@ impl ExplorerApi for Client {
             RequestOptions::new(),
         )
         .await
+    }
+}
+
+/// A subscription handle for file events SSE stream
+pub struct FileEventSubscription {
+    response: reqwest::Response,
+    buffer: String,
+}
+
+impl FileEventSubscription {
+    /// Create a new subscription from a response
+    fn new(response: reqwest::Response) -> Self {
+        Self {
+            response,
+            buffer: String::new(),
+        }
+    }
+
+    /// Receive the next file event from the stream.
+    /// Returns None when the stream ends.
+    pub async fn next_event(&mut self) -> ApiResult<Option<FileEvent>> {
+        loop {
+            // Try to parse a complete event from the buffer
+            if let Some(event) = self.try_parse_event()? {
+                return Ok(Some(event));
+            }
+
+            // Need more data from the stream
+            match self.response.chunk().await {
+                Ok(Some(chunk)) => {
+                    let text = String::from_utf8_lossy(&chunk);
+                    self.buffer.push_str(&text);
+                }
+                Ok(None) => {
+                    // Stream ended
+                    // Try to parse any remaining data
+                    if !self.buffer.is_empty() {
+                        if let Some(event) = self.try_parse_event()? {
+                            return Ok(Some(event));
+                        }
+                    }
+                    return Ok(None);
+                }
+                Err(e) => {
+                    return Err(crate::error::ApiError::SseStreamError(e.to_string()));
+                }
+            }
+        }
+    }
+
+    /// Try to parse a complete SSE event from the buffer
+    fn try_parse_event(&mut self) -> ApiResult<Option<FileEvent>> {
+        // SSE events are separated by double newlines
+        // Format:
+        // event:eventname
+        // data:payload
+        //
+        // (blank line)
+
+        // Find the end of an event (double newline)
+        let event_end = if let Some(pos) = self.buffer.find("\n\n") {
+            pos + 2
+        } else if let Some(pos) = self.buffer.find("\r\n\r\n") {
+            pos + 4
+        } else {
+            return Ok(None);
+        };
+
+        // Extract the event block
+        let event_block = self.buffer[..event_end].to_string();
+        self.buffer = self.buffer[event_end..].to_string();
+
+        // Parse the event
+        let mut event_type: Option<&str> = None;
+        let mut data: Option<&str> = None;
+
+        for line in event_block.lines() {
+            if let Some(rest) = line.strip_prefix("event:") {
+                event_type = Some(rest.trim());
+            } else if let Some(rest) = line.strip_prefix("data:") {
+                data = Some(rest.trim());
+            }
+        }
+
+        // Match on event type
+        match event_type {
+            Some("resumed") => Ok(Some(FileEvent::Resumed)),
+            Some("subscribed") => Ok(Some(FileEvent::Subscribed)),
+            Some("keep-alive") | Some("keepalive") => Ok(Some(FileEvent::KeepAlive)),
+            Some("event") => {
+                if let Some(data_str) = data {
+                    // Skip nil data
+                    if data_str == "<nil>" || data_str.is_empty() {
+                        // This shouldn't happen for "event" type, but handle gracefully
+                        return Ok(None);
+                    }
+                    // Parse the JSON data
+                    let event_data: FileEventData = serde_json::from_str(data_str)?;
+                    Ok(Some(FileEvent::Event(event_data)))
+                } else {
+                    Ok(None)
+                }
+            }
+            _ => {
+                // Unknown event type, skip it
+                Ok(None)
+            }
+        }
+    }
+}
+
+/// File events SSE API methods
+#[async_trait]
+pub trait FileEventsApi {
+    /// Subscribe to file events for a given URI.
+    ///
+    /// This connects to the SSE endpoint at /v4/file/events with the provided URI.
+    /// Returns a subscription handle that can be used to receive events.
+    ///
+    /// # Arguments
+    /// * `uri` - The filesystem URI to watch for events (e.g., "cloudreve://my-drive/")
+    ///
+    /// # Returns
+    /// * `Ok(FileEventSubscription)` - A handle to receive events from
+    /// * `Err(ApiError::SseNotUpgraded)` - If the server returned an error instead of SSE stream
+    /// * `Err(ApiError::RequestError)` - If the HTTP request failed
+    ///
+    /// # Example
+    /// ```no_run
+    /// use cloudreve_api::{Client, ClientConfig};
+    /// use cloudreve_api::api::explorer::FileEventsApi;
+    ///
+    /// async fn watch_events(client: &Client) -> Result<(), Box<dyn std::error::Error>> {
+    ///     let mut subscription = client.subscribe_file_events("cloudreve://my-drive/").await?;
+    ///
+    ///     while let Some(event) = subscription.next_event().await? {
+    ///         match event {
+    ///             cloudreve_api::models::explorer::FileEvent::Event(data) => {
+    ///                 println!("File event: {:?} on {}", data.event_type, data.from);
+    ///             }
+    ///             _ => {}
+    ///         }
+    ///     }
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    async fn subscribe_file_events(&self, uri: &str) -> ApiResult<FileEventSubscription>;
+}
+
+#[async_trait]
+impl FileEventsApi for Client {
+    async fn subscribe_file_events(&self, uri: &str) -> ApiResult<FileEventSubscription> {
+        let query = format!("?uri={}", urlencoding::encode(uri));
+        let url = self.build_url(&format!("/file/events{}", query));
+        let token = self.get_access_token().await?;
+
+        let response = self
+            .http_client
+            .get(&url)
+            .header(
+                format!("{}{}", CR_HEADER_PREFIX, self.config.client_id),
+                self.config.client_id.clone(),
+            )
+            .header("Authorization", format!("Bearer {}", token))
+            .header("Accept", "text/event-stream")
+            .send()
+            .await?;
+
+        // Check if we got an SSE response by looking at content-type
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+
+        if content_type.contains("text/event-stream") {
+            // Successfully upgraded to SSE
+            Ok(FileEventSubscription::new(response))
+        } else {
+            // Server returned a regular response (likely an error)
+            // Try to parse it as an API error response
+            let response_text = response.text().await?;
+
+            // Try to parse as API response
+            if let Ok(api_response) =
+                serde_json::from_str::<crate::error::ApiResponse<()>>(&response_text)
+            {
+                if api_response.code != 0 {
+                    return Err(crate::error::ApiError::SseNotUpgraded {
+                        code: api_response.code,
+                        message: api_response.msg,
+                    });
+                }
+            }
+
+            // If we couldn't parse it, return a generic error
+            Err(crate::error::ApiError::SseNotUpgraded {
+                code: -1,
+                message: format!("Unexpected response: {}", response_text),
+            })
+        }
     }
 }

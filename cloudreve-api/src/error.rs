@@ -131,6 +131,14 @@ pub enum ApiError {
     #[error("No authentication tokens available")]
     NoTokensAvailable,
 
+    /// SSE connection returned non-SSE response (server returned error before upgrading)
+    #[error("SSE connection failed (code {code}): {message}")]
+    SseNotUpgraded { code: i32, message: String },
+
+    /// SSE stream error
+    #[error("SSE stream error: {0}")]
+    SseStreamError(String),
+
     /// Generic error
     #[error("{0}")]
     Other(String),

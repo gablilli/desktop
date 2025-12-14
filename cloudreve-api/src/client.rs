@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 const API_PREFIX: &str = "/api/v4";
-const CR_HEADER_PREFIX: &str = "X-Cr-";
+pub const CR_HEADER_PREFIX: &str = "X-Cr-";
 
 /// Client configuration
 #[derive(Debug, Clone)]
@@ -19,6 +19,8 @@ pub struct ClientConfig {
     pub base_url: String,
     /// Timeout for requests in seconds
     pub timeout_seconds: u64,
+    /// Client ID
+    pub client_id: String,
 }
 
 impl ClientConfig {
@@ -27,12 +29,19 @@ impl ClientConfig {
         Self {
             base_url: base_url.into(),
             timeout_seconds: 60,
+            client_id: "".to_string(),
         }
     }
 
     /// Set the request timeout
     pub fn with_timeout(mut self, timeout_seconds: u64) -> Self {
         self.timeout_seconds = timeout_seconds;
+        self
+    }
+
+    /// Set the client ID
+    pub fn with_client_id(mut self, client_id: impl Into<String>) -> Self {
+        self.client_id = client_id.into();
         self
     }
 }
@@ -298,6 +307,14 @@ impl Client {
         if !options.no_credential {
             let token = self.get_access_token().await?;
             request = request.header("Authorization", format!("Bearer {}", token));
+        }
+
+        // Add client ID header if set
+        if !self.config.client_id.is_empty() {
+            request = request.header(
+                format!("{}{}", CR_HEADER_PREFIX, self.config.client_id),
+                self.config.client_id.clone(),
+            );
         }
 
         // Add purchase ticket if requested

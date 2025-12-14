@@ -530,3 +530,37 @@ pub mod navigator_capability {
     pub const RELOCATE: i32 = 22;
     pub const ENTER_FOLDER: i32 = 23;
 }
+
+/// File event type for SSE events
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FileEventType {
+    Create,
+    Modify,
+    Rename,
+    Delete,
+}
+
+/// File event data received from SSE
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileEventData {
+    #[serde(rename = "type")]
+    pub event_type: FileEventType,
+    pub file_id: String,
+    pub from: String,
+    #[serde(default)]
+    pub to: String,
+}
+
+/// SSE event types from the file events endpoint
+#[derive(Debug, Clone)]
+pub enum FileEvent {
+    /// Connection resumed
+    Resumed,
+    /// Subscription confirmed
+    Subscribed,
+    /// Keep-alive ping
+    KeepAlive,
+    /// Actual file event with data
+    Event(FileEventData),
+}

@@ -102,7 +102,8 @@ impl Mount {
         // let task_manager = TaskManager::new(task_config);
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         // initialize the client with the credentials
-        let client_config = ClientConfig::new(config.instance_url.clone());
+        let client_config =
+            ClientConfig::new(config.instance_url.clone()).with_client_id(config.id.clone());
         let mut cr_client = Client::new(client_config);
         cr_client
             .set_tokens_with_expiry(&Token {
@@ -568,7 +569,7 @@ impl Mount {
         }
 
         // Fetch user settings
-        match self.cr_client.get_user_storage_policies  ().await {
+        match self.cr_client.get_user_storage_policies().await {
             Ok(policies) => {
                 tracing::debug!(target: "drive::mounts", id=%self.id, "Fetched user storage policies");
                 update = update.with_storage_policies(policies);
