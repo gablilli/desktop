@@ -387,6 +387,14 @@ fn next_child_mode(mode: SyncMode) -> SyncMode {
     }
 }
 
+/// Result of collecting child targets, including pre-fetched remote file info.
+struct CollectChildResult {
+    /// All child paths (union of local and remote).
+    paths: Vec<PathBuf>,
+    /// Pre-fetched remote file info keyed by local path.
+    remote_files: HashMap<PathBuf, FileResponse>,
+}
+
 impl Mount {
     /// Syncs a list of local paths by grouping them under their parent directories.
     pub async fn sync_paths(&self, local_paths: Vec<PathBuf>, mode: SyncMode) -> Result<()> {
@@ -410,7 +418,7 @@ impl Mount {
         let mut aggregate_error = SyncAggregateError::new(format!("Mount {} sync_paths", self.id));
 
         for (parent, paths) in grouped.iter() {
-            if let Err(err) = self.sync_group(parent, paths, mode).await {
+            if let Err(err) = self.sync_group(parent, paths, mode, None).await {
                 let target_path = paths.first().cloned().unwrap_or_else(|| parent.clone());
                 aggregate_error.push(target_path, err);
             }
@@ -420,13 +428,20 @@ impl Mount {
         aggregate_error.into_result()
     }
 
-    async fn sync_group(&self, parent: &PathBuf, paths: &[PathBuf], mode: SyncMode) -> Result<()> {
+    async fn sync_group(
+        &self,
+        parent: &PathBuf,
+        paths: &[PathBuf],
+        mode: SyncMode,
+        prefetched_remote_files: Option<HashMap<PathBuf, FileResponse>>,
+    ) -> Result<()> {
         tracing::info!(
             target: "drive::sync",
             id = %self.id,
             parent = %parent.display(),
             paths = paths.len(),
             mode = ?mode,
+            prefetched = prefetched_remote_files.is_some(),
             "Queued grouped sync"
         );
 
@@ -461,7 +476,10 @@ impl Mount {
             return aggregate_error.into_result();
         }
 
-        let remote_files = self.fetch_remote_file_infos(parent, paths).await?;
+        let remote_files = match prefetched_remote_files {
+            Some(files) => files,
+            None => self.fetch_remote_file_infos(parent, paths).await?,
+        };
         tracing::debug!(
             target: "drive::sync",
             id = %self.id,
@@ -1165,8 +1183,8 @@ impl Mount {
     ) {
         for walk in requests {
             match self.collect_child_targets(&walk.path).await {
-                Ok(child_paths) => {
-                    if child_paths.is_empty() {
+                Ok(result) => {
+                    if result.paths.is_empty() {
                         tracing::trace!(
                             target: "drive::sync",
                             id = %self.id,
@@ -1183,13 +1201,18 @@ impl Mount {
                         directory = %walk.path.display(),
                         reason = ?walk.reason,
                         next_mode = ?walk.mode,
-                        children = child_paths.len(),
+                        children = result.paths.len(),
                         timing = ?walk.timing,
                         "Walking child directory"
                     );
 
+                    let prefetched = if result.remote_files.is_empty() {
+                        None
+                    } else {
+                        Some(result.remote_files)
+                    };
                     let child_future =
-                        Box::pin(self.sync_group(&walk.path, &child_paths, walk.mode));
+                        Box::pin(self.sync_group(&walk.path, &result.paths, walk.mode, prefetched));
                     if let Err(err) = child_future.await {
                         tracing::error!(
                             target: "drive::sync",
@@ -1217,7 +1240,7 @@ impl Mount {
         }
     }
 
-    async fn collect_child_targets(&self, directory: &PathBuf) -> Result<Vec<PathBuf>> {
+    async fn collect_child_targets(&self, directory: &PathBuf) -> Result<CollectChildResult> {
         let dir_clone = directory.clone();
         let mut children = Vec::new();
         match fs::read_dir(&dir_clone) {
@@ -1235,17 +1258,24 @@ impl Mount {
             }
         };
 
-        let remote_children = self.list_remote_children(directory).await?;
+        let (remote_children, remote_files) = self.list_remote_children(directory).await?;
 
         let mut dedup: HashSet<PathBuf> = HashSet::new();
         for child in children.into_iter().chain(remote_children.into_iter()) {
             dedup.insert(child);
         }
 
-        Ok(dedup.into_iter().collect())
+        Ok(CollectChildResult {
+            paths: dedup.into_iter().collect(),
+            remote_files,
+        })
     }
 
-    async fn list_remote_children(&self, directory: &PathBuf) -> Result<Vec<PathBuf>> {
+    /// Lists remote children and returns both the local paths and the file info map.
+    async fn list_remote_children(
+        &self,
+        directory: &PathBuf,
+    ) -> Result<(Vec<PathBuf>, HashMap<PathBuf, FileResponse>)> {
         let (remote_base, sync_root) = {
             let config = self.config.read().await;
             (config.remote_path.clone(), config.sync_path.clone())
@@ -1262,7 +1292,7 @@ impl Mount {
                         error = %err,
                         "Failed to map local directory to remote URI while walking"
                     );
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), HashMap::new()));
                 }
             };
         let remote_dir_uri_str = remote_dir_uri.to_string();
@@ -1277,12 +1307,13 @@ impl Mount {
                     error = %err,
                     "Failed to parse remote base URI while walking"
                 );
-                return Ok(Vec::new());
+                return Ok((Vec::new(), HashMap::new()));
             }
         };
 
         let mut previous_response = None;
         let mut children = Vec::new();
+        let mut remote_files: HashMap<PathBuf, FileResponse> = HashMap::new();
 
         loop {
             let response = match self
@@ -1304,7 +1335,7 @@ impl Mount {
                         directory = %directory.display(),
                         "Remote directory missing during walk"
                     );
-                    return Ok(Vec::new());
+                    return Ok((Vec::new(), HashMap::new()));
                 }
                 Err(err) => {
                     return Err(err.into());
@@ -1327,7 +1358,8 @@ impl Mount {
                             .map(|p| p == directory.as_path())
                             .unwrap_or(false)
                         {
-                            children.push(local_path);
+                            children.push(local_path.clone());
+                            remote_files.insert(local_path, file.clone());
                         }
                     }
                     Err(err) => {
@@ -1349,6 +1381,6 @@ impl Mount {
             previous_response = Some(response);
         }
 
-        Ok(children)
+        Ok((children, remote_files))
     }
 }

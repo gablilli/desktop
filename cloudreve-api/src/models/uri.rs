@@ -1,8 +1,38 @@
-use std::{collections::HashMap, fmt::{Display, Formatter}};
+use anyhow::Result;
+use percent_encoding::{percent_decode_str, percent_encode, AsciiSet, NON_ALPHANUMERIC};
+use std::{
+    collections::HashMap,
+    fmt::{Display, Formatter},
+};
 use url::Url;
-use anyhow::{Context, Result};
 
 use super::explorer::file_type;
+
+/// Character set for encoding that matches JavaScript's encodeURIComponent.
+/// encodeURIComponent escapes all characters except: A-Z a-z 0-9 - _ . ! ~ * ' ( )
+const ENCODE_URI_COMPONENT_SET: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'.')
+    .remove(b'!')
+    .remove(b'~')
+    .remove(b'*')
+    .remove(b'\'')
+    .remove(b'(')
+    .remove(b')');
+
+/// Encode a string using the same rules as JavaScript's encodeURIComponent
+fn encode_uri_component(s: &str) -> String {
+    percent_encode(s.as_bytes(), ENCODE_URI_COMPONENT_SET).to_string()
+}
+
+/// Decode a percent-encoded string
+fn decode_uri_component(s: &str) -> String {
+    percent_decode_str(s)
+        .decode_utf8()
+        .unwrap_or_else(|_| s.into())
+        .to_string()
+}
 
 /// Cloudreve URI prefix
 pub const CR_URI_PREFIX: &str = "cloudreve://";
@@ -297,16 +327,14 @@ impl CrUri {
 
     /// Get the path from the URI (decoded)
     pub fn path(&self) -> String {
-        urlencoding::decode(self.url.path())
-            .unwrap_or_else(|_| self.url.path().into())
-            .to_string()
+        decode_uri_component(self.url.path())
     }
 
     /// Set the path of the URI
     pub fn set_path(&mut self, path: &str) -> &mut Self {
         let encoded_segments: Vec<String> = path
             .split('/')
-            .map(|p| urlencoding::encode(p).to_string())
+            .map(|p| encode_uri_component(p))
             .collect();
         let encoded_path = encoded_segments.join("/");
         self.url.set_path(&encoded_path);
@@ -336,7 +364,7 @@ impl CrUri {
         let mut result = current_path.to_string();
 
         for p in paths {
-            let encoded = urlencoding::encode(p);
+            let encoded = encode_uri_component(p);
             if !result.ends_with('/') {
                 result.push('/');
             }
@@ -374,11 +402,7 @@ impl CrUri {
 
         trimmed
             .split('/')
-            .map(|p| {
-                urlencoding::decode(p)
-                    .unwrap_or_else(|_| p.into())
-                    .to_string()
-            })
+            .map(|p| decode_uri_component(p))
             .collect()
     }
 
