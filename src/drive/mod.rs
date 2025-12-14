@@ -6,5 +6,6 @@ pub mod ignore;
 pub mod manager;
 pub mod mounts;
 pub mod placeholder;
+pub mod remote_events;
 pub mod sync;
 pub mod utils;

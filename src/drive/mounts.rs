@@ -25,6 +25,7 @@ use std::{
 };
 use tokio::spawn;
 use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::task::JoinHandle;
 use url::Url;
 use windows::Storage::Provider::StorageProviderSyncRootManager;
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -74,8 +75,9 @@ pub struct Mount {
     connection: Option<Connection<CallbackHandler>>,
     pub command_tx: mpsc::UnboundedSender<MountCommand>,
     command_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<MountCommand>>>>,
-    processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    props_refresh_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    processor_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    props_refresh_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    remote_event_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     status: Arc<RwLock<MountStatus>>,
     manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     fs_watcher: Mutex<Option<FsWatcher>>,
@@ -174,6 +176,7 @@ impl Mount {
             command_rx: Arc::new(tokio::sync::Mutex::new(Some(command_rx))),
             processor_handle: Arc::new(tokio::sync::Mutex::new(None)),
             props_refresh_handle: Arc::new(tokio::sync::Mutex::new(None)),
+            remote_event_handle: Arc::new(tokio::sync::Mutex::new(None)),
             cr_client: cr_client_arc,
             inventory,
             task_queue,
@@ -352,6 +355,13 @@ impl Mount {
         }
     }
 
+    pub async fn spawn_remote_event_processor(&self, s: Arc<Self>) {
+        let handle = tokio::spawn(async move {
+            Self::process_remote_events(s).await;
+        });
+        *self.remote_event_handle.lock().await = Some(handle);
+    }
+
     /// Process commands from OS threads asynchronously
     async fn process_commands(
         s: Arc<Self>,
@@ -475,6 +485,12 @@ impl Mount {
 
     pub async fn shutdown(&self) {
         tracing::info!(target: "drive::mounts", id=%self.id, "Shutting down Mount");
+
+        // Stop the remote event listener
+        if let Some(handle) = self.remote_event_handle.lock().await.take() {
+            tracing::debug!(target: "drive::mounts", id=%self.id, "Stopping remote event listener");
+            handle.abort();
+        }
 
         if let Some(fs_watcher) = self.fs_watcher.lock().await.take() {
             tracing::debug!(target: "drive::mounts", id=%self.id, "Stopping FS watcher");
