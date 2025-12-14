@@ -52,7 +52,7 @@ impl IgnoreMatcher {
             let glob_pattern = if pattern.contains('/') || pattern.contains('\\') {
                 // Normalize path separators to forward slashes for glob matching
                 let normalized = pattern.replace('\\', "/");
-                
+
                 // Pattern contains path separator
                 if normalized.starts_with('/') {
                     // Anchored pattern - remove leading '/' and match from start
@@ -122,9 +122,7 @@ impl IgnoreMatcher {
         };
 
         // Convert to forward slashes for consistent matching across platforms
-        let normalized = relative_path
-            .to_string_lossy()
-            .replace('\\', "/");
+        let normalized = relative_path.to_string_lossy().replace('\\', "/");
 
         self.globset.is_match(&normalized)
     }
@@ -139,10 +137,7 @@ impl IgnoreMatcher {
     /// # Returns
     /// `true` if the path matches any ignore pattern, `false` otherwise
     pub fn is_match_relative<P: AsRef<Path>>(&self, relative_path: P) -> bool {
-        let normalized = relative_path
-            .as_ref()
-            .to_string_lossy()
-            .replace('\\', "/");
+        let normalized = relative_path.as_ref().to_string_lossy().replace('\\', "/");
 
         self.globset.is_match(&normalized)
     }
@@ -265,4 +260,3 @@ mod tests {
         assert!(!matcher.is_match_relative("src/build"));
     }
 }
-

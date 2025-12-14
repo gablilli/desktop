@@ -264,10 +264,11 @@ impl<'a> UploadTask<'a> {
             remote_uri: uri,
             file_size,
             mime_type: None, // Could be detected from file extension
-            last_modified: local_file
-                .local_file_info
-                .last_modified
-                .map(|t| t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis() as i64),
+            last_modified: local_file.local_file_info.last_modified.map(|t| {
+                t.duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as i64
+            }),
             overwrite: !is_new_file,
             previous_version: self
                 .inventory_meta

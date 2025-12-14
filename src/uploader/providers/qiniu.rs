@@ -2,7 +2,7 @@
 
 use crate::uploader::chunk::ChunkInfo;
 use crate::uploader::session::UploadSession;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use bytes::Bytes;
 use futures::Stream;
 use reqwest::{Body, Client as HttpClient};

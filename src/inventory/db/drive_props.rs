@@ -155,17 +155,17 @@ impl NewDrivePropsRow {
         let has_user_settings = update.user_settings.is_some();
 
         let capacity = match update.capacity {
-            Some(Some(c)) => Some(
-                serde_json::to_string(&c).context("Failed to serialize capacity")?,
-            ),
+            Some(Some(c)) => {
+                Some(serde_json::to_string(&c).context("Failed to serialize capacity")?)
+            }
             _ => None,
         };
         let capacity_updated_at = if has_capacity { Some(now) } else { None };
 
         let storage_policies = match update.storage_policies {
-            Some(Some(p)) => Some(
-                serde_json::to_string(&p).context("Failed to serialize storage policies")?,
-            ),
+            Some(Some(p)) => {
+                Some(serde_json::to_string(&p).context("Failed to serialize storage policies")?)
+            }
             _ => None,
         };
         let storage_policies_updated_at = if has_storage_policies {
@@ -175,9 +175,9 @@ impl NewDrivePropsRow {
         };
 
         let user_settings = match update.user_settings {
-            Some(Some(s)) => Some(
-                serde_json::to_string(&s).context("Failed to serialize user settings")?,
-            ),
+            Some(Some(s)) => {
+                Some(serde_json::to_string(&s).context("Failed to serialize user settings")?)
+            }
             _ => None,
         };
         let user_settings_updated_at = if has_user_settings { Some(now) } else { None };
@@ -221,11 +221,7 @@ impl DrivePropsChangeset {
             Some(None) => Some(None),
             None => None,
         };
-        let capacity_updated_at = if has_capacity {
-            Some(Some(now))
-        } else {
-            None
-        };
+        let capacity_updated_at = if has_capacity { Some(Some(now)) } else { None };
 
         let storage_policies = match update.storage_policies {
             Some(Some(p)) => Some(Some(
@@ -264,4 +260,3 @@ impl DrivePropsChangeset {
         })
     }
 }
-

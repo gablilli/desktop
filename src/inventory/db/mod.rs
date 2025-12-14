@@ -62,7 +62,9 @@ impl InventoryDb {
         Ok(home.join(".cloudreve").join("meta.db"))
     }
 
-    pub(crate) fn connection(&self) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>> {
+    pub(crate) fn connection(
+        &self,
+    ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>> {
         self.pool
             .get()
             .context("Failed to get connection from inventory pool")
@@ -76,4 +78,3 @@ fn run_migrations(database_url: &str) -> Result<()> {
         .map_err(|err| anyhow!("Failed to run inventory database migrations: {err}"))?;
     Ok(())
 }
-

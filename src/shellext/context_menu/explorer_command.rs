@@ -1,4 +1,4 @@
-use super::{get_images_path, SubCommands, CLSID_EXPLORER_COMMAND};
+use super::{CLSID_EXPLORER_COMMAND, SubCommands, get_images_path};
 use crate::drive::manager::DriveManager;
 use std::sync::Arc;
 use windows::{
@@ -67,4 +67,3 @@ impl IExplorerCommand_Impl for CrExplorerCommandHandler_Impl {
         Ok(SubCommands::new(self.drive_manager.clone(), self.images_path.clone()).into())
     }
 }
-

@@ -1,4 +1,4 @@
-use super::{get_images_path, SyncNowCommandHandler, ViewOnlineCommandHandler};
+use super::{SyncNowCommandHandler, ViewOnlineCommandHandler, get_images_path};
 use crate::drive::manager::DriveManager;
 use std::sync::{Arc, Mutex};
 use windows::{
@@ -113,4 +113,3 @@ sub_command_factory!(create_sync_now_command, SyncNowCommandHandler);
 
 const SUB_COMMAND_FACTORIES: [SubCommandFactory; 2] =
     [create_view_online_command, create_sync_now_command];
-

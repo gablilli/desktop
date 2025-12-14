@@ -39,4 +39,3 @@ impl IClassFactory_Impl for CrExplorerCommandFactory_Impl {
         Ok(())
     }
 }
-

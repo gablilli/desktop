@@ -107,4 +107,3 @@ impl IExplorerCommand_Impl for ViewOnlineCommandHandler_Impl {
         Err(Error::from(E_NOTIMPL))
     }
 }
-

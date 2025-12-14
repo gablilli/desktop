@@ -30,10 +30,7 @@ pub enum UploadError {
 
     /// Chunk upload failed
     #[error("Chunk {chunk_index} upload failed: {message}")]
-    ChunkUploadFailed {
-        chunk_index: usize,
-        message: String,
-    },
+    ChunkUploadFailed { chunk_index: usize, message: String },
 
     /// Failed to complete multipart upload
     #[error("Failed to complete upload: {0}")]
@@ -57,10 +54,7 @@ pub enum UploadError {
 
     /// Storage provider error (with provider-specific details)
     #[error("Storage provider error ({provider}): {message}")]
-    ProviderError {
-        provider: String,
-        message: String,
-    },
+    ProviderError { provider: String, message: String },
 
     /// Maximum retries exceeded
     #[error("Maximum retries ({max_retries}) exceeded for chunk {chunk_index}")]
@@ -79,10 +73,7 @@ pub enum UploadError {
 
     /// S3-like error response
     #[error("S3 error ({code}): {message}")]
-    S3Error {
-        code: String,
-        message: String,
-    },
+    S3Error { code: String, message: String },
 
     /// Qiniu error response
     #[error("Qiniu error: {0}")]
@@ -90,10 +81,7 @@ pub enum UploadError {
 
     /// Upyun error response
     #[error("Upyun error ({code}): {message}")]
-    UpyunError {
-        code: i32,
-        message: String,
-    },
+    UpyunError { code: i32, message: String },
 
     /// Callback to Cloudreve server failed
     #[error("Upload callback failed: {0}")]
@@ -170,4 +158,3 @@ impl From<anyhow::Error> for UploadError {
         UploadError::Other(err.to_string())
     }
 }
-

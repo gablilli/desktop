@@ -29,4 +29,3 @@ pub fn get_images_path() -> Result<String> {
             .to_string(),
     ))
 }
-

@@ -291,9 +291,7 @@ pub struct DrivePropsUpdate {
 
 impl DrivePropsUpdate {
     pub fn is_empty(&self) -> bool {
-        self.capacity.is_none()
-            && self.storage_policies.is_none()
-            && self.user_settings.is_none()
+        self.capacity.is_none() && self.storage_policies.is_none() && self.user_settings.is_none()
     }
 
     pub fn with_capacity(mut self, capacity: Capacity) -> Self {
@@ -311,4 +309,3 @@ impl DrivePropsUpdate {
         self
     }
 }
-

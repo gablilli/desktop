@@ -161,33 +161,182 @@ impl Mount {
         events: Vec<FileEventData>,
     ) -> Result<()> {
         // Group events by type
-        let mut create_events: Vec<FileEventData> = Vec::new();
-        let mut modify_events: Vec<FileEventData> = Vec::new();
+        let mut create_update_events: Vec<FileEventData> = Vec::new();
         let mut rename_events: Vec<FileEventData> = Vec::new();
         let mut delete_events: Vec<FileEventData> = Vec::new();
 
         for event in events {
             match event.event_type {
-                FileEventType::Create => create_events.push(event),
-                FileEventType::Modify => modify_events.push(event),
+                FileEventType::Create => create_update_events.push(event),
+                FileEventType::Modify => create_update_events.push(event),
                 FileEventType::Rename => rename_events.push(event),
                 FileEventType::Delete => delete_events.push(event),
             }
         }
 
         // Handle Create events grouped by parent
-        if !create_events.is_empty() {
-            self.handle_create_events(sync_root.clone(), create_events)
+        if !create_update_events.is_empty() {
+            self.handle_create_update_events(sync_root.clone(), create_update_events)
                 .await?;
         }
 
-        // Handle other event types (currently no-op, but structured for future expansion)
-        // Modify, Rename, Delete events can be handled here when needed
+        // Handle Delete events
+        if !delete_events.is_empty() {
+            self.handle_delete_events(sync_root.clone(), delete_events)
+                .await?;
+        }
+
+        // Handle Rename events
+        if !rename_events.is_empty() {
+            self.handle_rename_events(sync_root.clone(), rename_events)
+                .await?;
+        }
 
         Ok(())
     }
 
-    async fn handle_create_events(
+    async fn handle_rename_events(
+        &self,
+        sync_root: PathBuf,
+        events: Vec<FileEventData>,
+    ) -> Result<()> {
+        // Handle rename as a combination of delete (from) and create (to)
+        // Group by parent for both from paths (if they exist) and to paths
+        let mut from_grouped_by_parent: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+        let mut to_grouped_by_parent: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+
+        for event in events {
+            // Handle `from` path (like delete) - only if it exists locally
+            let from_relative: PathBuf = event.from.trim_start_matches('/').split('/').collect();
+            let local_from_path = sync_root.join(&from_relative);
+
+            let from_exists = match LocalFileInfo::from_path(&local_from_path) {
+                Ok(info) => info.exists,
+                Err(e) => {
+                    tracing::trace!(
+                        target: "drive::remote_events",
+                        path = %local_from_path.display(),
+                        error = ?e,
+                        "Failed to get file info for rename from path, skipping"
+                    );
+                    false
+                }
+            };
+
+            if from_exists {
+                if let Some(parent) = local_from_path.parent() {
+                    from_grouped_by_parent
+                        .entry(parent.to_path_buf())
+                        .or_default()
+                        .push(local_from_path);
+                }
+            }
+
+            // Handle `to` path (like create) - always process
+            let to_relative: PathBuf = event.to.trim_start_matches('/').split('/').collect();
+            let local_to_path = sync_root.join(&to_relative);
+
+            if let Some(parent) = local_to_path.parent() {
+                to_grouped_by_parent
+                    .entry(parent.to_path_buf())
+                    .or_default()
+                    .push(local_to_path);
+            }
+        }
+
+        // Process from paths (deletions)
+        for (parent, paths) in from_grouped_by_parent {
+            if let Err(e) = self
+                .sync_last_presented_parent(sync_root.clone(), parent, paths)
+                .await
+            {
+                tracing::error!(
+                    target: "drive::remote_events",
+                    error = ?e,
+                    "Failed to sync parent for rename from paths"
+                );
+            }
+        }
+
+        // Process to paths (creations)
+        for (parent, paths) in to_grouped_by_parent {
+            if let Err(e) = self
+                .sync_last_presented_parent(sync_root.clone(), parent, paths)
+                .await
+            {
+                tracing::error!(
+                    target: "drive::remote_events",
+                    error = ?e,
+                    "Failed to sync parent for rename to paths"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_delete_events(
+        &self,
+        sync_root: PathBuf,
+        events: Vec<FileEventData>,
+    ) -> Result<()> {
+        // Group delete events by parent of `from` path, filtering out non-existent files
+        let mut grouped_by_parent: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
+
+        for event in events {
+            // Remote paths use Unix-style separators, convert to OS-native path
+            let relative_path: PathBuf = event.from.trim_start_matches('/').split('/').collect();
+            let local_from_path = sync_root.join(&relative_path);
+
+            // Check if file exists locally, skip if not
+            let path_info = match LocalFileInfo::from_path(&local_from_path) {
+                Ok(info) => info,
+                Err(e) => {
+                    tracing::trace!(
+                        target: "drive::remote_events",
+                        path = %local_from_path.display(),
+                        error = ?e,
+                        "Failed to get file info for delete event, skipping"
+                    );
+                    continue;
+                }
+            };
+
+            if !path_info.exists {
+                tracing::trace!(
+                    target: "drive::remote_events",
+                    path = %local_from_path.display(),
+                    "File does not exist locally for delete event, skipping"
+                );
+                continue;
+            }
+
+            if let Some(parent) = local_from_path.parent() {
+                grouped_by_parent
+                    .entry(parent.to_path_buf())
+                    .or_default()
+                    .push(local_from_path);
+            }
+        }
+
+        // Process each group
+        for (parent, paths) in grouped_by_parent {
+            if let Err(e) = self
+                .sync_last_presented_parent(sync_root.clone(), parent, paths)
+                .await
+            {
+                tracing::error!(
+                    target: "drive::remote_events",
+                    error = ?e,
+                    "Failed to sync parent for delete events"
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn handle_create_update_events(
         &self,
         sync_root: PathBuf,
         events: Vec<FileEventData>,
@@ -249,8 +398,8 @@ impl Mount {
                 return Ok(());
             }
 
-            let path_info = LocalFileInfo::from_path(&current_path)
-                .context("failed to get path file info")?;
+            let path_info =
+                LocalFileInfo::from_path(&current_path).context("failed to get path file info")?;
 
             if path_info.exists {
                 if !path_info.is_placeholder() || path_info.is_folder_populated() {

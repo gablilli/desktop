@@ -21,8 +21,8 @@ use widestring::U16CString;
 use windows::{
     Win32::{
         Foundation::E_FAIL,
-        System::Variant::VT_UI4,
         Storage::EnhancedStorage::PKEY_LastSyncError,
+        System::Variant::VT_UI4,
         UI::Shell::{
             IShellItem2,
             PropertiesSystem::{
@@ -132,7 +132,10 @@ impl CrPlaceholder {
                     "Converting to placeholder"
                 );
                 local_handle
-                    .convert_to_placeholder(ConvertOptions::default().mark_in_sync().blob(blob), None)
+                    .convert_to_placeholder(
+                        ConvertOptions::default().mark_in_sync().blob(blob),
+                        None,
+                    )
                     .context("failed to convert to placeholder")?;
             }
 
@@ -145,14 +148,15 @@ impl CrPlaceholder {
                     .created(FileTime::from_unix_time(file_meta.created_at)?),
             );
 
-            let dehydrate_requested = self.options & CrPlaceholderOptions::InvalidateAllRange as u32 != 0;
-            let mut local_handle = if dehydrate_requested{
+            let dehydrate_requested =
+                self.options & CrPlaceholderOptions::InvalidateAllRange as u32 != 0;
+            let mut local_handle = if dehydrate_requested {
                 OpenOptions::new()
                     .write_access()
                     .exclusive()
                     .open(&self.local_path)
                     .context("failed to open local placeholder for dehydration")?
-            }else{
+            } else {
                 OpenOptions::new()
                     .open_win32(&self.local_path)
                     .context("failed to open local placeholder")?

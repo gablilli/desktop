@@ -106,4 +106,3 @@ impl IExplorerCommand_Impl for SyncNowCommandHandler_Impl {
         Err(Error::from(E_NOTIMPL))
     }
 }
-

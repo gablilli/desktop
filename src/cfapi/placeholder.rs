@@ -20,7 +20,15 @@ use windows::{
         },
         Storage::{
             CloudFilters::{
-                self, CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_FS_METADATA, CF_OPEN_FILE_FLAGS, CF_PIN_STATE, CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO, CF_PLACEHOLDER_STATE, CF_SET_PIN_FLAGS, CF_UPDATE_FLAGS, CfCloseHandle, CfConvertToPlaceholder, CfDehydratePlaceholder, CfGetPlaceholderInfo, CfGetPlaceholderRangeInfo, CfGetPlaceholderStateFromFileInfo, CfGetPlaceholderStateFromFindData, CfGetWin32HandleFromProtectedHandle, CfHydratePlaceholder, CfOpenFileWithOplock, CfReferenceProtectedHandle, CfReleaseProtectedHandle, CfRevertPlaceholder, CfSetInSyncState, CfSetPinState, CfUpdatePlaceholder
+                self, CF_CONVERT_FLAGS, CF_FILE_RANGE, CF_FS_METADATA, CF_OPEN_FILE_FLAGS,
+                CF_PIN_STATE, CF_PLACEHOLDER_RANGE_INFO_CLASS, CF_PLACEHOLDER_STANDARD_INFO,
+                CF_PLACEHOLDER_STATE, CF_SET_PIN_FLAGS, CF_UPDATE_FLAGS, CfCloseHandle,
+                CfConvertToPlaceholder, CfDehydratePlaceholder, CfGetPlaceholderInfo,
+                CfGetPlaceholderRangeInfo, CfGetPlaceholderStateFromFileInfo,
+                CfGetPlaceholderStateFromFindData, CfGetWin32HandleFromProtectedHandle,
+                CfHydratePlaceholder, CfOpenFileWithOplock, CfReferenceProtectedHandle,
+                CfReleaseProtectedHandle, CfRevertPlaceholder, CfSetInSyncState, CfSetPinState,
+                CfUpdatePlaceholder,
             },
             FileSystem::{
                 CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_PINNED,
@@ -93,10 +101,10 @@ impl OwnedPlaceholderHandle {
 impl Drop for OwnedPlaceholderHandle {
     fn drop(&mut self) {
         match self.handle_type {
-            PlaceholderHandleType::CfApi => unsafe { 
+            PlaceholderHandleType::CfApi => unsafe {
                 tracing::trace!(target: "cfapi::placeholder", "Drop cf handle: {:?}", self.handle);
                 CfCloseHandle(self.handle)
-             },
+            },
             PlaceholderHandleType::Win32 => unsafe {
                 tracing::trace!(target: "cfapi::placeholder", "Drop win32 handle: {:?}", self.handle);
                 _ = CloseHandle(self.handle);
@@ -148,8 +156,8 @@ impl AsRawHandle for ArcWin32Handle {
 impl Drop for ArcWin32Handle {
     fn drop(&mut self) {
         if self.protected_handle != INVALID_HANDLE_VALUE {
-        tracing::trace!(target: "cfapi::placeholder", win32_handle = ?self.win32_handle, protected_handle = ?self.protected_handle, "Drop cf protected handle");
-        unsafe { CfReleaseProtectedHandle(self.protected_handle) };
+            tracing::trace!(target: "cfapi::placeholder", win32_handle = ?self.win32_handle, protected_handle = ?self.protected_handle, "Drop cf protected handle");
+            unsafe { CfReleaseProtectedHandle(self.protected_handle) };
         }
     }
 }

@@ -744,6 +744,7 @@ impl FileEventSubscription {
             Some("resumed") => Ok(Some(FileEvent::Resumed)),
             Some("subscribed") => Ok(Some(FileEvent::Subscribed)),
             Some("keep-alive") | Some("keepalive") => Ok(Some(FileEvent::KeepAlive)),
+            Some("reconnect-required") => Ok(Some(FileEvent::ReconnectRequired)),
             Some("event") => {
                 if let Some(data_str) = data {
                     // Skip nil data
@@ -752,7 +753,8 @@ impl FileEventSubscription {
                         return Ok(None);
                     }
                     // Try to parse as array first (batch of events)
-                    if let Ok(event_data_list) = serde_json::from_str::<Vec<FileEventData>>(data_str)
+                    if let Ok(event_data_list) =
+                        serde_json::from_str::<Vec<FileEventData>>(data_str)
                     {
                         if event_data_list.is_empty() {
                             return Ok(None);
@@ -824,7 +826,7 @@ impl FileEventsApi for Client {
             .http_client
             .get(&url)
             .header(
-                format!("{}Client-Id", CR_HEADER_PREFIX ),
+                format!("{}Client-Id", CR_HEADER_PREFIX),
                 self.config.client_id.clone(),
             )
             .header("Authorization", format!("Bearer {}", token))
