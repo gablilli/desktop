@@ -312,7 +312,7 @@ impl Client {
         // Add client ID header if set
         if !self.config.client_id.is_empty() {
             request = request.header(
-                format!("{}{}", CR_HEADER_PREFIX, self.config.client_id),
+                format!("{}Client-Id", CR_HEADER_PREFIX),
                 self.config.client_id.clone(),
             );
         }

@@ -816,7 +816,7 @@ impl FileEventsApi for Client {
             .http_client
             .get(&url)
             .header(
-                format!("{}{}", CR_HEADER_PREFIX, self.config.client_id),
+                format!("{}Client-Id", CR_HEADER_PREFIX ),
                 self.config.client_id.clone(),
             )
             .header("Authorization", format!("Bearer {}", token))
