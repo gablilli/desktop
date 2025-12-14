@@ -22,7 +22,7 @@ pub fn local_path_to_cr_uri(path: PathBuf, root: PathBuf, remote_base: String) -
 
     // Join the relative path to the base URI if not empty
     if !relative_str.is_empty() {
-        base.join_raw(&relative_str);
+        base.join(&relative_str.split("/").collect::<Vec<&str>>());
     }
 
     Ok(base)

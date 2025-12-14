@@ -159,7 +159,7 @@ impl SyncFilter for CallbackHandler {
                     })
                     .collect::<Vec<MetadataEntry>>();
                 if let Err(e) = self.inventory.batch_insert(&entries) {
-                    tracing::error!(target: "drive::mounts", id = %self.id, error = %e, "Failed to insert placeholders into inventory");
+                    tracing::error!(target: "drive::mounts", id = %self.id, error = ?e, "Failed to insert placeholders into inventory");
                 }
                 return Ok(());
             }

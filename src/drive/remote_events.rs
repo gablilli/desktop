@@ -7,7 +7,7 @@ use cloudreve_api::{
     api::explorer::FileEventsApi,
     models::explorer::{FileEvent, FileEventData, FileEventType},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::{Path, PathBuf}, sync::Arc, time::Duration};
 
 const MAX_RETRIES: u32 = 5;
 const INITIAL_BACKOFF_SECS: u64 = 1;
@@ -89,12 +89,13 @@ impl Mount {
                             error = %e,
                             "Max retries reached, waiting 1 hour before retrying. Triggerring full sync..."
                         );
-                        tokio::time::sleep(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
-                        backoff.reset();
+                        tokio::time::sleep(Duration::from_secs(10)).await;
                         let _ = s.command_tx.send(MountCommand::Sync {
                             local_paths: vec![sync_path.clone()],
                             mode: SyncMode::FullHierarchy,
                         });
+                        tokio::time::sleep(Duration::from_secs(LONG_RETRY_DELAY_SECS)).await;
+                        backoff.reset();
                     }
                 }
             }
@@ -116,6 +117,7 @@ impl Mount {
             match subscription.next_event().await {
                 Ok(Some(event)) => match event {
                     FileEvent::Event(data) => {
+                        tracing::trace!(target: "drive::remote_events", event = ?data, "Handling file event");
                         if let Err(e) = self.handle_file_event(sync_path.clone(), data).await {
                             tracing::error!(target: "drive::remote_events", error = ?e, "Failed to handle file event");
                         }
@@ -149,11 +151,11 @@ impl Mount {
     }
 
     async fn handle_file_event(&self, sync_root: PathBuf, event: FileEventData) -> Result<()> {
-        let local_to_path = sync_root.join(PathBuf::from(event.to).strip_prefix("/")?);
+        let local_from_path = sync_root.join(PathBuf::from(event.from).strip_prefix("/")?);
 
         match event.event_type {
             FileEventType::Create => {
-                self.sync_last_presented_parent(sync_root, local_to_path)
+                self.sync_last_presented_parent(sync_root, local_from_path)
                     .await
             }
             FileEventType::Modify => Ok(()),
@@ -167,29 +169,33 @@ impl Mount {
         sync_root: PathBuf,
         local_path: PathBuf,
     ) -> Result<()> {
+        let mut current_parent: Option<&Path> = None;
+        let mut current = local_path.as_path();
         loop {
-            let parent_path = local_path.parent();
-            if parent_path.is_none() || sync_root.parent() == parent_path {
+            current_parent = current.parent();
+            if current_parent.is_none() || sync_root.parent() == current_parent {
                 tracing::warn!(target: "drive::remote_events",sync_root=%sync_root.display(), local_path=%local_path.display(), "File event is not under sync root, skipping");
                 return Ok(());
             }
 
-            let parent_info = LocalFileInfo::from_path(parent_path.unwrap())
+            let parent_info = LocalFileInfo::from_path(current_parent.unwrap())
                 .context("failed to get parent file info")?;
             if parent_info.exists {
                 if !parent_info.is_placeholder() || parent_info.is_folder_populated() {
-                    tracing::trace!(target: "drive::remote_events", parent_path=%parent_path.unwrap().display(), "Syncing parent path for new event");
+                    tracing::trace!(target: "drive::remote_events", parent_path=%current_parent.unwrap().display(), "Syncing parent path for new event");
                     self.command_tx
                         .send(MountCommand::Sync {
-                            local_paths: vec![parent_path.unwrap().to_path_buf()],
+                            local_paths: vec![current.to_path_buf()],
                             mode: SyncMode::PathOnly,
                         })
                         .context("failed to send sync command")?;
                 } else {
-                    tracing::trace!(target: "drive::remote_events", parent_path=%parent_path.unwrap().display(), "Parent path is a placeholder and not populated, skipping");
+                    tracing::trace!(target: "drive::remote_events", parent_path=%current_parent.unwrap().display(), "Parent path is a placeholder and not populated, skipping");
                 }
                 return Ok(());
             }
+            
+            current = current_parent.unwrap();
         }
     }
 }
