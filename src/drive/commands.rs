@@ -12,6 +12,7 @@ use crate::{
     },
     inventory::ConflictState,
     tasks::TaskPayload,
+    utils::toast,
 };
 use anyhow::{Context, Result};
 use base64::alphabet::URL_SAFE;
@@ -32,13 +33,13 @@ use notify_debouncer_full::notify::{
     Event, EventKind,
     event::{CreateKind, ModifyKind, RemoveKind, RenameMode},
 };
-use uuid::Uuid;
 use std::{
     collections::HashMap,
     ops::Range,
     path::{Path, PathBuf},
 };
 use tokio::sync::oneshot::Sender;
+use uuid::Uuid;
 use widestring::U16CString;
 use windows::Win32::{
     Storage::FileSystem::{FILE_ATTRIBUTE_DIRECTORY, GetFileAttributesW},
@@ -46,6 +47,44 @@ use windows::Win32::{
 };
 use windows_core::PCWSTR;
 const PAGE_SIZE: i32 = 1000;
+
+/// Generate a unique filename by appending a counter suffix before the extension.
+/// For example: "document.txt" -> "document (1).txt", "document (2).txt", etc.
+/// For files without extension: "README" -> "README (1)", "README (2)", etc.
+fn generate_unique_filename(original_path: &Path) -> PathBuf {
+    let parent = original_path.parent().unwrap_or(Path::new(""));
+    let stem = original_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("file");
+    let extension = original_path.extension().and_then(|e| e.to_str());
+
+    let mut counter = 1;
+    loop {
+        let new_name = match extension {
+            Some(ext) => format!("{} ({}).{}", stem, counter, ext),
+            None => format!("{} ({})", stem, counter),
+        };
+        let new_path = parent.join(&new_name);
+        if !new_path.exists() {
+            return new_path;
+        }
+        counter += 1;
+        // Safety limit to prevent infinite loop
+        if counter > 10000 {
+            // Fallback to timestamp-based name
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let fallback_name = match extension {
+                Some(ext) => format!("{}_{}.{}", stem, timestamp, ext),
+                None => format!("{}_{}", stem, timestamp),
+            };
+            return parent.join(fallback_name);
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct GetPlacehodlerResult {
@@ -589,7 +628,10 @@ impl Mount {
 
         let (sync_root, drive_id) = {
             let config = self.config.read().await;
-            (config.sync_path.clone(), Uuid::parse_str(&config.id).context("invalid drive ID")?)
+            (
+                config.sync_path.clone(),
+                Uuid::parse_str(&config.id).context("invalid drive ID")?,
+            )
         };
 
         match action {
@@ -597,9 +639,13 @@ impl Mount {
                 // Delete local file and trigger sync on origin path
                 let cr_placeholder =
                     CrPlaceholder::new(local_path.clone(), sync_root.clone(), drive_id.clone());
-                cr_placeholder.delete_placeholder(self.inventory.clone()).context("failed to delete local placeholder")?;
-                self.event_blocker
-                    .register_once(&EventKind::Remove(RemoveKind::Any), local_path.clone().into());
+                cr_placeholder
+                    .delete_placeholder(self.inventory.clone())
+                    .context("failed to delete local placeholder")?;
+                self.event_blocker.register_once(
+                    &EventKind::Remove(RemoveKind::Any),
+                    local_path.clone().into(),
+                );
                 let command = MountCommand::Sync {
                     local_paths: vec![local_path.clone().into()],
                     mode: SyncMode::PathOnly,
@@ -641,7 +687,48 @@ impl Mount {
                     return Err(err.into());
                 }
             }
-            ConflictAction::SaveAsNew => {}
+            ConflictAction::SaveAsNew => {
+                // Generate a unique new filename for the conflicted local file
+                let local_path_buf: PathBuf = local_path.clone().into();
+                let new_path = generate_unique_filename(&local_path_buf);
+
+                // Copy the local file to the new name
+                std::fs::copy(&local_path_buf, &new_path)
+                    .context("failed to copy file to new name")?;
+
+                tracing::info!(
+                    target: "drive::commands",
+                    original = %local_path,
+                    new = %new_path.display(),
+                    "Copied conflicted file to new name"
+                );
+
+                // Delete local file and trigger sync on origin path (same as KeepRemote)
+                let cr_placeholder =
+                    CrPlaceholder::new(local_path.clone(), sync_root.clone(), drive_id.clone());
+                cr_placeholder
+                    .delete_placeholder(self.inventory.clone())
+                    .context("failed to delete local placeholder")?;
+                self.event_blocker.register_once(
+                    &EventKind::Remove(RemoveKind::Any),
+                    local_path.clone().into(),
+                );
+
+                // Trigger sync to restore the remote version at original path
+                let command = MountCommand::Sync {
+                    local_paths: vec![local_path.clone().into()],
+                    mode: SyncMode::PathOnly,
+                };
+                if let Err(e) = self.command_tx.send(command) {
+                    tracing::error!(target: "drive::commands", error = %e, "Failed to send Sync command");
+                }
+
+                toast::send_general_text_toast(
+                    &t!("conflictRenamed"),
+                    &t!("newName","name" => new_path.
+                file_name().unwrap_or_default().to_string_lossy().to_string()),
+                );
+            }
         }
 
         Ok(())

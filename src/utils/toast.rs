@@ -11,6 +11,28 @@ use win32_notif::{
 
 const APP_NAME: &str = "Cloudreve.Sync";
 
+pub fn send_general_text_toast(title: &str, message: &str) {
+    let notifier = ToastsNotifier::new(APP_NAME).unwrap();
+
+    let notif = NotificationBuilder::new()
+        .visual(
+            Text::create(1, title)
+                .with_align_center(true)
+                .with_wrap(true)
+                .with_style(HintStyle::Title),
+        )
+        .visual(
+            Text::create(2, message)
+                .with_align_center(true)
+                .with_wrap(true)
+                .with_style(HintStyle::Body),
+        )
+        .build(0, &notifier, "01", "readme")
+        .unwrap();
+
+    notif.show().unwrap();
+}
+
 pub fn send_conflict_toast(drive_id: &str, path: &PathBuf, inventory_id: i64) {
     let notifier = ToastsNotifier::new(APP_NAME).unwrap();
 

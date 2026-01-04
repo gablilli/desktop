@@ -41,3 +41,9 @@ selectAction:
 resolveTooltip:
   en-US: "Resolve the selected action"
   zh-CN: "执行选定的操作"
+conflictRenamed:
+  en-US: "Conflicted file was renamed."
+  zh-CN: "冲突文件已重命名。"
+newName:
+  en-US: "Your local change is saved to %{name}."
+  zh-CN: "您的本地更改已保存为 %{name}。"
