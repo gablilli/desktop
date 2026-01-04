@@ -3,6 +3,7 @@ use crate::drive::manager::DriveManager;
 use crate::inventory::InventoryDb;
 use crate::utils::app::{AppRoot, get_app_root};
 use std::collections::HashMap;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use std::sync::Arc;
 use windows::{
     Win32::{Foundation::*, System::Com::*, UI::Notifications::*},
@@ -111,6 +112,10 @@ impl ToastActivator {
             let command_tx = self.drive_manager.get_command_sender();
             if let Err(e) = command_tx.send(ManagerCommand::ResolveConflict {
                 drive_id: params.get("drive_id").unwrap_or(&String::new()).to_string(),
+                path: URL_SAFE.decode(params.get("path").unwrap_or(&String::new()).to_string().as_bytes())
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .unwrap_or_default(),
                 file_id: params
                     .get("file_id")
                     .unwrap_or(&String::new())

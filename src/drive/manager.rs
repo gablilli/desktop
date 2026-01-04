@@ -375,12 +375,13 @@ impl DriveManager {
                 ManagerCommand::ResolveConflict {
                     drive_id,
                     file_id,
+                    path,
                     action,
                 } => {
                     spawn(async move {
                         let drive = manager.get_drive(&drive_id).await;
                         if let Some(drive) = drive {
-                            let result = drive.resolve_conflict(action, file_id).await;
+                            let result = drive.resolve_conflict(action, file_id,path).await;
                             if let Err(e) = result {
                                 tracing::error!(target: "drive::manager", error = %e, "Failed to resolve conflict");
                             }

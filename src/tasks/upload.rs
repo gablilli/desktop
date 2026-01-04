@@ -149,7 +149,11 @@ impl<'a> UploadTask<'a> {
         }
 
         // Handle empty files and directories separately
-        let upload_res = match (is_directory, file_size == 0, self.inventory_meta.is_none()) {
+        let upload_res = match (
+            is_directory,
+            file_size == 0 && !self.task.payload.force_override,
+            self.inventory_meta.is_none(),
+        ) {
             (true, _, _) => self.create_empty_file_or_folder().await,
             (false, true, true) => self.create_empty_file_or_folder().await,
             (false, true, false) => self.clear_file_content().await,
@@ -204,13 +208,7 @@ impl<'a> UploadTask<'a> {
                     // Send conflict toast
                     send_conflict_toast(
                         self.drive_id,
-                        self.task
-                            .payload
-                            .local_path
-                            .file_name()
-                            .unwrap_or_default()
-                            .to_str()
-                            .unwrap_or_default(),
+                        &self.task.payload.local_path,
                         self.inventory_meta
                             .as_ref()
                             .map(|meta| meta.id)
@@ -288,9 +286,6 @@ impl<'a> UploadTask<'a> {
         .context("failed to convert local path to cloudreve uri")?
         .to_string();
 
-        // Get storage policy ID from the credential in existing session or use default
-        // For now, we'll need to get it from the file info or use a default
-        // Create upload params
         // If conflict state is set to Override, omit previous_version to force upload without version check
         let previous_version = if let Some(meta) = &self.inventory_meta {
             if matches!(meta.conflict_state, Some(ConflictState::Override)) {
@@ -312,7 +307,7 @@ impl<'a> UploadTask<'a> {
                     .unwrap()
                     .as_millis() as i64
             }),
-            overwrite: !is_new_file,
+            overwrite: !is_new_file || self.task.payload.force_override,
             previous_version,
             task_id: self.task.task_id.clone(),
             drive_id: self.drive_id.to_string(),

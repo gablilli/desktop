@@ -14,6 +14,7 @@ use crate::{
     tasks::TaskPayload,
 };
 use anyhow::{Context, Result};
+use base64::alphabet::URL_SAFE;
 use bytes::Bytes;
 use cloudreve_api::{
     ApiError,
@@ -116,6 +117,7 @@ pub enum ManagerCommand {
     ResolveConflict {
         drive_id: String,
         file_id: i64,
+        path: String,
         action: ConflictAction,
     },
 }
@@ -562,14 +564,25 @@ impl Mount {
         Ok(())
     }
 
-    pub async fn resolve_conflict(&self, action: ConflictAction, file_id: i64) -> Result<()> {
-        let file_meta = self
-            .inventory
-            .query_by_id(file_id)
-            .context("failed to query metadata by id")?
-            .ok_or_else(|| anyhow::anyhow!("file metadata not found for id {}", file_id))?;
+    pub async fn resolve_conflict(
+        &self,
+        action: ConflictAction,
+        file_id: i64,
+        path: String,
+    ) -> Result<()> {
+        let (local_path, conflict_state) = match file_id {
+            0 => (path, None),
+            _ => {
+                let file_meta = self
+                    .inventory
+                    .query_by_id(file_id)
+                    .context("failed to query file by ID")?
+                    .ok_or_else(|| anyhow::anyhow!("file not found in inventory"))?;
+                (file_meta.local_path, file_meta.conflict_state)
+            }
+        };
 
-        if file_meta.conflict_state.is_none() {
+        if file_id > 0 && conflict_state.is_none() {
             return Err(anyhow::anyhow!("file is not conflicted"));
         }
 
@@ -578,31 +591,32 @@ impl Mount {
                 // file_meta.conflict_state = Some(ConflictState::KeepLocal);
             }
             ConflictAction::OverwriteRemote => {
-                if file_meta.conflict_state.unwrap() != ConflictState::Pending {
-                    return Err(anyhow::anyhow!("file is not pending conflict resolution"));
+                if file_id > 0 {
+                    // Update conflict state with overwrite and trigger upload
+                    self.inventory
+                        .mark_as_conflicted(&local_path, Some(ConflictState::Override))
+                        .context("failed to mark file as conflicted")?;
+                    if conflict_state.unwrap() != ConflictState::Pending {
+                        return Err(anyhow::anyhow!("file is not pending conflict resolution"));
+                    }
                 }
-
-                // Update conflict state with overwrite and trigger upload
-                self.inventory
-                    .mark_as_conflicted(&file_meta.local_path, Some(ConflictState::Override))
-                    .context("failed to mark file as conflicted")?;
 
                 tracing::info!(
                     target: "drive::sync",
                     id = %self.id,
-                    path = %file_meta.local_path,
+                    path = %local_path,
                     "Queueing upload task"
                 );
 
                 if let Err(err) = self
                     .task_queue
-                    .enqueue(TaskPayload::upload(file_meta.local_path.clone()))
+                    .enqueue(TaskPayload::upload(local_path.clone()).with_force_override(true))
                     .await
                 {
                     tracing::error!(
                         target: "drive::sync",
                         id = %self.id,
-                        path = %file_meta.local_path,
+                        path = %local_path,
                         error = ?err,
                         "Failed to enqueue upload task"
                     );

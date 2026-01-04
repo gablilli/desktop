@@ -34,6 +34,9 @@ pub struct TaskPayload {
     pub total_bytes: Option<i64>,
     pub processed_bytes: Option<i64>,
     pub custom_state: Option<Value>,
+
+    // Upload
+    pub force_override: bool,
 }
 
 impl TaskPayload {
@@ -46,6 +49,7 @@ impl TaskPayload {
             total_bytes: None,
             processed_bytes: None,
             custom_state: None,
+            force_override: false,
         }
     }
 
@@ -75,6 +79,11 @@ impl TaskPayload {
 
     pub fn with_custom_state(mut self, state: Value) -> Self {
         self.custom_state = Some(state);
+        self
+    }
+
+    pub fn with_force_override(mut self, force: bool) -> Self {
+        self.force_override = force;
         self
     }
 

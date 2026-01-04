@@ -1,3 +1,6 @@
+use std::path::PathBuf;
+
+use base64::{Engine as _, engine::general_purpose::URL_SAFE};
 use win32_notif::{
     NotificationBuilder, ToastsNotifier,
     notification::{
@@ -8,7 +11,7 @@ use win32_notif::{
 
 const APP_NAME: &str = "Cloudreve.Sync";
 
-pub fn send_conflict_toast(drive_id: &str, file_name: &str, inventory_id: i64) {
+pub fn send_conflict_toast(drive_id: &str, path: &PathBuf, inventory_id: i64) {
     let notifier = ToastsNotifier::new(APP_NAME).unwrap();
 
     let notif = NotificationBuilder::new()
@@ -19,7 +22,7 @@ pub fn send_conflict_toast(drive_id: &str, file_name: &str, inventory_id: i64) {
                 .with_style(HintStyle::Title),
         )
         .visual(
-            Text::create(2, file_name)
+            Text::create(2, path.file_name().unwrap_or_default().to_str().unwrap_or_default())
                 .with_align_center(true)
                 .with_wrap(true)
                 .with_style(HintStyle::Body),
@@ -39,8 +42,8 @@ pub fn send_conflict_toast(drive_id: &str, file_name: &str, inventory_id: i64) {
             Box::new(
                 ActionButton::create(t!("resolveWithAction").as_ref())
                     .with_id(&format!(
-                        "action=resolve&drive_id={}&file_id={}",
-                        drive_id, inventory_id
+                        "action=resolve&drive_id={}&file_id={}&path={}",
+                        drive_id, inventory_id, URL_SAFE.encode(path.display().to_string())
                     ))
                     .with_tooltip(t!("resolveTooltip").as_ref()),
             ),
