@@ -5,6 +5,8 @@ use crate::shellext::status_ui::{
     CLSID_STATUS_UI_HANDLER, StatusUIHandlerFactory, StatusUIHandlerFactoryFactory,
 };
 use crate::shellext::thumbnail::{CLSID_THUMBNAIL_PROVIDER, ThumbnailProviderFactory};
+use crate::shellext::toast::{CLSID_TOAST_ACTIVATOR, ToastActivatorFactory};
+use reqwest::cookie;
 use rust_i18n::t;
 use std::sync::{Arc, mpsc};
 use std::thread;
@@ -48,6 +50,12 @@ pub fn init_and_start_service_task(drive_manager: Arc<DriveManager>) -> ServiceH
 
         if let Err(e) = services.init_and_start_thumbnail_provider_handler() {
             tracing::error!(target: "shellext::shell_service", "Failed to initialize thumbnail provider handler: {:?}", e);
+            let _ = tx.send(Err(e));
+            return;
+        }
+
+        if let Err(e) = services.init_and_start_toast_handler() {
+            tracing::error!(target: "shellext::shell_service", "Failed to initialize toast handler: {:?}", e);
             let _ = tx.send(Err(e));
             return;
         }
@@ -122,6 +130,28 @@ impl ShellServices {
 
             self.cookies.push(cookie);
             tracing::info!(target: "shellext::thumbnail", "Thumbnail Provider Handler registered with cookie: {}", cookie);
+        }
+
+        Ok(())
+    }
+
+    pub fn init_and_start_toast_handler(&mut self) -> Result<()> {
+        tracing::info!(target: "shellext::toast", "Initializing Shell Services (Toast Handler)...");
+
+        unsafe {
+            // Create and register the class factory
+            let factory: IClassFactory =
+                ToastActivatorFactory::new(self.drive_manager.clone()).into();
+
+            let cookie = CoRegisterClassObject(
+                &CLSID_TOAST_ACTIVATOR,
+                &factory,
+                CLSCTX_LOCAL_SERVER,
+                REGCLS_MULTIPLEUSE,
+            )?;
+
+            self.cookies.push(cookie);
+            tracing::info!(target: "shellext::toast", "Toast Handler registered with cookie: {}", cookie);
         }
 
         Ok(())
