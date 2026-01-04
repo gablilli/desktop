@@ -1,14 +1,58 @@
 use crate::drive::manager::DriveManager;
 use crate::inventory::InventoryDb;
 use crate::utils::app::{AppRoot, get_app_root};
+use std::collections::HashMap;
 use std::sync::Arc;
 use windows::{
     Win32::{Foundation::*, System::Com::*, UI::Notifications::*},
     core::*,
 };
 
-pub const CLSID_TOAST_ACTIVATOR: GUID =
-    GUID::from_u128(0xeffe04d9_151d_49da_9eb5_34e01442edfe);
+pub const CLSID_TOAST_ACTIVATOR: GUID = GUID::from_u128(0xeffe04d9_151d_49da_9eb5_34e01442edfe);
+
+/// Represents the parsed action from toast notification arguments
+#[derive(Debug, Clone)]
+pub struct ToastAction {
+    /// The action type (e.g., "resolve", "dismiss", "viewImage")
+    pub action: String,
+    /// Additional parameters parsed from the arguments
+    pub params: HashMap<String, String>,
+}
+
+impl ToastAction {
+    /// Parse toast arguments string into a ToastAction
+    /// Supports formats like:
+    /// - "action=resolve"
+    /// - "action=resolve&file_id=123&drive_id=456"
+    /// - "resolve" (action name only)
+    pub fn parse(args: &str) -> Self {
+        let mut action = String::new();
+        let mut params = HashMap::new();
+
+        // Split by '&' to get key=value pairs
+        for part in args.split('&') {
+            if let Some((key, value)) = part.split_once('=') {
+                if key == "action" {
+                    action = value.to_string();
+                } else {
+                    params.insert(key.to_string(), value.to_string());
+                }
+            } else if action.is_empty() {
+                // If no '=' found and action is empty, treat the whole part as the action
+                action = part.to_string();
+            }
+        }
+
+        Self { action, params }
+    }
+}
+
+/// User input data from toast notification
+#[derive(Debug, Clone)]
+pub struct ToastInputData {
+    pub key: String,
+    pub value: String,
+}
 
 #[implement(INotificationActivationCallback)]
 pub struct ToastActivator {
@@ -25,6 +69,73 @@ impl ToastActivator {
             app_root: get_app_root(),
             inventory,
         }
+    }
+
+    /// Parse the NOTIFICATION_USER_INPUT_DATA array into a Vec of ToastInputData
+    fn parse_input_data(
+        data: *const NOTIFICATION_USER_INPUT_DATA,
+        count: u32,
+    ) -> Vec<ToastInputData> {
+        let mut inputs = Vec::new();
+
+        if data.is_null() || count == 0 {
+            return inputs;
+        }
+
+        unsafe {
+            let slice = std::slice::from_raw_parts(data, count as usize);
+            for input in slice {
+                let key = input.Key.to_string().unwrap_or_default();
+                let value = input.Value.to_string().unwrap_or_default();
+                inputs.push(ToastInputData { key, value });
+            }
+        }
+
+        inputs
+    }
+
+    /// Handle the resolve action for conflict resolution
+    fn handle_resolve_action(&self, inputs: &[ToastInputData], params: &HashMap<String, String>) {
+        // Get the first input data (selection value)
+        if let Some(first_input) = inputs.first() {
+            tracing::info!(
+                key = %first_input.key,
+                value = %first_input.value,
+                ?params,
+                "Handling resolve action"
+            );
+
+            match first_input.value.as_str() {
+                "keep_local" => {
+                    tracing::info!("User chose to keep local version");
+                    // TODO: Implement keep local logic
+                    // self.inventory.resolve_conflict_keep_local(...)
+                }
+                "overwrite_remote" => {
+                    tracing::info!("User chose to overwrite remote version");
+                    // TODO: Implement overwrite remote logic
+                    // self.inventory.resolve_conflict_overwrite_remote(...)
+                }
+                other => {
+                    tracing::warn!(selection = %other, "Unknown selection value for resolve action");
+                }
+            }
+        } else {
+            tracing::warn!("Resolve action triggered but no input data provided");
+        }
+    }
+
+    /// Handle the dismiss action
+    fn handle_dismiss_action(&self, params: &HashMap<String, String>) {
+        tracing::debug!(?params, "Toast dismissed by user");
+        // Dismiss is usually a no-op, but we could log or track dismissals
+    }
+
+    /// Handle opening the app window (foreground activation)
+    fn handle_foreground_activation(&self, params: &HashMap<String, String>) {
+        tracing::debug!(?params, "Foreground activation - opening app window");
+        // TODO: Implement window opening logic if needed
+        // This could be used when user clicks on the toast body itself
     }
 }
 
@@ -43,17 +154,57 @@ impl INotificationActivationCallback_Impl for ToastActivator_Impl {
             data,
             count
         );
-        // Parse the invoked arguments to determine the action
-        unsafe {
+
+        // Parse the invoked arguments
+        let args = unsafe {
             if invokedargs.is_null() {
                 return Ok(());
             }
-            let args = invokedargs.to_string();
-            tracing::trace!( ?args,"Toast activated with arguments");
+            match invokedargs.to_string() {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!(?e, "Failed to parse invoked arguments");
+                    return Ok(());
+                }
+            }
+        };
+
+        if args.is_empty() {
+            // Empty args typically means user clicked on the toast body itself
+            self.handle_foreground_activation(&HashMap::new());
+            return Ok(());
         }
 
-        // Here you can add logic to handle different actions based on args
-        // For example, open a specific file or navigate to a URL
+        tracing::debug!(?args, "Toast activated with arguments");
+
+        // Parse the action and parameters
+        let toast_action = ToastAction::parse(&args);
+        tracing::debug!(?toast_action, "Parsed toast action");
+
+        // Parse the input data
+        let inputs = ToastActivator::parse_input_data(data, count);
+        if !inputs.is_empty() {
+            tracing::debug!(?inputs, "Received user input data");
+        }
+
+        // Handle different actions
+        match toast_action.action.as_str() {
+            "resolve" => {
+                self.handle_resolve_action(&inputs, &toast_action.params);
+            }
+            "dismiss" => {
+                self.handle_dismiss_action(&toast_action.params);
+            }
+            "" => {
+                // Empty action - foreground activation (user clicked on toast body)
+                self.handle_foreground_activation(&toast_action.params);
+            }
+            other => {
+                tracing::warn!(action = %other, "Unknown toast action");
+                // For unknown actions, treat as foreground activation
+                self.handle_foreground_activation(&toast_action.params);
+            }
+        }
 
         Ok(())
     }
