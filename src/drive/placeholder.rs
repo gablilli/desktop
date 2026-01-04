@@ -251,6 +251,7 @@ impl CrPlaceholder {
             props: None,
             permissions: file_info.permission.clone().unwrap_or_default(),
             shared: file_info.shared.unwrap_or(false),
+            conflict_state: None,
         });
         self
     }

@@ -3,7 +3,7 @@ use std::{path::PathBuf, str::FromStr, sync::Arc, time::SystemTime};
 use crate::utils::toast::send_toast;
 use crate::{
     drive::{placeholder::CrPlaceholder, utils::local_path_to_cr_uri},
-    inventory::{FileMetadata, InventoryDb},
+    inventory::{ConflictState, FileMetadata, InventoryDb},
     tasks::queue::QueuedTask,
     uploader::{ProgressCallback, ProgressUpdate, UploadParams, Uploader, UploaderConfig},
 };
@@ -165,7 +165,7 @@ impl<'a> UploadTask<'a> {
             Err(e) => {
                 // Check if the error is an ApiError with StaleVersion (40076)
                 // The error might be wrapped with anyhow context, so check the chain
-                let is_stale_version = e.chain().any(|cause| {
+                let is_conflict_error = e.chain().any(|cause| {
                     if let Some(api_err) = cause.downcast_ref::<ApiError>() {
                         matches!(
                             api_err,
@@ -178,13 +178,28 @@ impl<'a> UploadTask<'a> {
                     }
                 });
 
-                if is_stale_version {
+                if is_conflict_error {
                     warn!(
                         target: "tasks::upload",
                         task_id = %self.task.task_id,
                         local_path = %self.task.payload.local_path_display(),
-                        "Stale version detected, server has newer version, skipping upload"
+                        "Conflict detected, server has newer version or object exists"
                     );
+
+                    // Mark the file as conflicted in the inventory
+                    let path_str = self.task.payload.local_path.to_str().unwrap_or_default();
+                    if let Err(mark_err) = self
+                        .inventory
+                        .mark_as_conflicted(path_str, Some(ConflictState::Pending))
+                    {
+                        warn!(
+                            target: "tasks::upload",
+                            task_id = %self.task.task_id,
+                            local_path = %self.task.payload.local_path_display(),
+                            error = ?mark_err,
+                            "Failed to mark file as conflicted"
+                        );
+                    }
                 }
 
                 // Mark file as error state
@@ -260,6 +275,17 @@ impl<'a> UploadTask<'a> {
         // Get storage policy ID from the credential in existing session or use default
         // For now, we'll need to get it from the file info or use a default
         // Create upload params
+        // If conflict state is set to Override, omit previous_version to force upload without version check
+        let previous_version = if let Some(meta) = &self.inventory_meta {
+            if matches!(meta.conflict_state, Some(ConflictState::Override)) {
+                String::new() // Omit previous version when user chose to override
+            } else {
+                meta.etag.clone()
+            }
+        } else {
+            String::new()
+        };
+
         let params = UploadParams {
             local_path: self.task.payload.local_path.clone(),
             remote_uri: uri,
@@ -271,11 +297,7 @@ impl<'a> UploadTask<'a> {
                     .as_millis() as i64
             }),
             overwrite: !is_new_file,
-            previous_version: self
-                .inventory_meta
-                .as_ref()
-                .map(|m| m.etag.clone())
-                .unwrap_or_default(),
+            previous_version,
             task_id: self.task.task_id.clone(),
             drive_id: self.drive_id.to_string(),
         };

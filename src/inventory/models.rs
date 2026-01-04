@@ -4,6 +4,32 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// Represents the conflict state of a file with the remote
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ConflictState {
+    /// File has a conflict, pending user action
+    Pending,
+    /// User chose to override the remote version
+    Override,
+}
+
+impl ConflictState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConflictState::Pending => "pending",
+            ConflictState::Override => "override",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "pending" => Some(ConflictState::Pending),
+            "override" => Some(ConflictState::Override),
+            _ => None,
+        }
+    }
+}
+
 /// Represents a file metadata entry in the inventory
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
@@ -19,6 +45,7 @@ pub struct FileMetadata {
     pub permissions: String,
     pub shared: bool,
     pub size: i64,
+    pub conflict_state: Option<ConflictState>,
 }
 
 /// Entry for inserting or updating file metadata
@@ -35,6 +62,7 @@ pub struct MetadataEntry {
     pub size: i64,
     pub metadata: HashMap<String, String>,
     pub props: Option<serde_json::Value>,
+    pub conflict_state: Option<ConflictState>,
 }
 
 impl MetadataEntry {
@@ -51,6 +79,7 @@ impl MetadataEntry {
             permissions: String::new(),
             shared: false,
             size: 0,
+            conflict_state: None,
         }
     }
 
@@ -109,6 +138,7 @@ impl From<&FileMetadata> for MetadataEntry {
             metadata: file_metadata.metadata.clone(),
             props: file_metadata.props.clone(),
             size: file_metadata.size,
+            conflict_state: file_metadata.conflict_state,
         }
     }
 }

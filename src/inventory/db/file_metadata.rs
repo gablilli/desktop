@@ -1,6 +1,6 @@
 use super::InventoryDb;
 use crate::inventory::{
-    FileMetadata, MetadataEntry, schema::upload_sessions::dsl as upload_sessions_dsl,
+    ConflictState, FileMetadata, MetadataEntry, schema::upload_sessions::dsl as upload_sessions_dsl,
 };
 use anyhow::{Context, Result};
 use diesel::prelude::*;
@@ -183,6 +183,22 @@ impl InventoryDb {
 
         Ok(total)
     }
+
+    /// Mark a file as conflicted by setting its conflict_state.
+    /// Pass `None` to clear the conflict state.
+    ///
+    /// Returns true if a row was updated.
+    pub fn mark_as_conflicted(&self, path: &str, state: Option<ConflictState>) -> Result<bool> {
+        let mut conn = self.connection()?;
+        let state_str = state.map(|s| s.as_str().to_string());
+        let rows_affected = diesel::update(
+            file_metadata_dsl::file_metadata.filter(file_metadata_dsl::local_path.eq(path)),
+        )
+        .set(file_metadata_dsl::conflict_state.eq(state_str))
+        .execute(&mut conn)
+        .context("Failed to update conflict state")?;
+        Ok(rows_affected > 0)
+    }
 }
 
 // =========================================================================
@@ -203,6 +219,7 @@ struct FileMetadataRow {
     permissions: String,
     shared: bool,
     size: i64,
+    conflict_state: Option<String>,
 }
 
 #[derive(Insertable)]
@@ -219,6 +236,7 @@ struct NewFileMetadata {
     permissions: String,
     shared: bool,
     size: i64,
+    conflict_state: Option<String>,
 }
 
 #[derive(AsChangeset)]
@@ -233,6 +251,7 @@ struct FileMetadataChangeset {
     permissions: String,
     shared: bool,
     size: i64,
+    conflict_state: Option<String>,
 }
 
 impl TryFrom<FileMetadataRow> for FileMetadata {
@@ -247,6 +266,10 @@ impl TryFrom<FileMetadataRow> for FileMetadata {
             }
             None => None,
         };
+        let conflict_state = row
+            .conflict_state
+            .as_deref()
+            .and_then(ConflictState::from_str);
 
         Ok(FileMetadata {
             id: row.id,
@@ -261,6 +284,7 @@ impl TryFrom<FileMetadataRow> for FileMetadata {
             permissions: row.permissions,
             shared: row.shared,
             size: row.size,
+            conflict_state,
         })
     }
 }
@@ -287,6 +311,7 @@ impl TryFrom<&MetadataEntry> for NewFileMetadata {
             permissions: entry.permissions.clone(),
             shared: entry.shared,
             size: entry.size,
+            conflict_state: entry.conflict_state.map(|s| s.as_str().to_string()),
         })
     }
 }
@@ -309,6 +334,7 @@ impl FileMetadataChangeset {
             permissions: entry.permissions.clone(),
             shared: entry.shared,
             size: entry.size,
+            conflict_state: entry.conflict_state.map(|s| s.as_str().to_string()),
         })
     }
 }
