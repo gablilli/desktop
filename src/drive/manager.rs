@@ -3,6 +3,7 @@ use super::mounts::{DriveConfig, Mount};
 use crate::drive::commands::MountCommand;
 use crate::drive::utils::{local_path_to_cr_uri, view_online_url};
 use crate::inventory::InventoryDb;
+use crate::utils::toast::send_conflict_toast;
 use anyhow::{Context, Result};
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
@@ -390,6 +391,15 @@ impl DriveManager {
                         }
                     });
                 }
+                ManagerCommand::ShowConflictToast { path } => {
+                    let path = path.clone();
+                    spawn(async move {
+                        let result = manager.handle_show_conflict_toast(path.clone()).await;
+                        if let Err(e) = result {
+                            tracing::error!(target: "drive::manager", path = %path.display(), error = %e, "Failed to show conflict toast");
+                        }
+                    });
+                }
             }
         }
 
@@ -431,6 +441,31 @@ impl DriveManager {
         };
 
         open::that(url)?;
+        Ok(())
+    }
+
+    /// Handle ShowConflictToast command
+    async fn handle_show_conflict_toast(&self, path: PathBuf) -> Result<()> {
+        tracing::debug!(target: "drive::manager", path = %path.display(), "ShowConflictToast command");
+
+        // Find the drive that contains this path
+        let mount = self
+            .search_drive_by_child_path(path.to_str().unwrap_or(""))
+            .await
+            .ok_or_else(|| anyhow::anyhow!("No drive found for path: {:?}", path))?;
+
+        // Query inventory for file metadata
+        let file_meta = self
+            .inventory
+            .query_by_path(path.to_str().unwrap_or(""))
+            .context("Failed to query file metadata")?
+            .ok_or_else(|| anyhow::anyhow!("File not found in inventory: {:?}", path))?;
+
+        let config = mount.get_config().await;
+
+        // Send the conflict toast
+        send_conflict_toast(&config.id, &path, file_meta.id);
+
         Ok(())
     }
 

@@ -1,7 +1,7 @@
+use crate::drive::commands::ManagerCommand;
 use crate::drive::manager::DriveManager;
 use crate::inventory::ConflictState;
 use crate::utils::app::AppRoot;
-use crate::utils::toast::send_conflict_toast;
 use rust_i18n::t;
 use std::sync::Arc;
 use windows::{
@@ -128,31 +128,16 @@ impl IExplorerCommand_Impl for ResolveConflictCommandHandler_Impl {
                 "Opening conflict resolution toast"
             );
 
-            // Query inventory to get file metadata
-            let inventory = self.drive_manager.get_inventory();
-            let file_meta = match inventory.query_by_path(&path_str) {
-                Ok(Some(meta)) => meta,
-                Ok(None) => {
-                    tracing::warn!(
-                        target: "shellext::context_menu",
-                        path = %path_str,
-                        "File not found in inventory"
-                    );
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::error!(
-                        target: "shellext::context_menu",
-                        path = %path_str,
-                        error = %e,
-                        "Failed to query inventory"
-                    );
-                    return Ok(());
-                }
-            };
+            // Send command through channel to async processor
+            let command_tx = self.drive_manager.get_command_sender();
 
-            // Send the conflict toast (same as upload.rs does)
-            send_conflict_toast(&file_meta.drive_id.to_string(), &path, file_meta.id);
+            if let Err(e) = command_tx.send(ManagerCommand::ShowConflictToast { path }) {
+                tracing::error!(
+                    target: "shellext::context_menu",
+                    error = %e,
+                    "Failed to send ShowConflictToast command"
+                );
+            }
         }
 
         Ok(())

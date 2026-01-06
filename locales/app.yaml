@@ -47,6 +47,6 @@ conflictRenamed:
 newName:
   en-US: "Your local change is saved to %{name}."
   zh-CN: "您的本地更改已保存为 %{name}。"
-resolveConflicts:
-  en-US: "Resolve conflicts"
+resolveConflict:
+  en-US: "Resolve conflict"
   zh-CN: "解决冲突"

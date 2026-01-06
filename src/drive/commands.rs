@@ -160,6 +160,10 @@ pub enum ManagerCommand {
         path: String,
         action: ConflictAction,
     },
+    /// Show conflict resolution toast for a file
+    ShowConflictToast {
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
