@@ -285,11 +285,6 @@ impl<'a> DownloadTask<'a> {
     /// Download file from remote and replace local placeholder content
     async fn download_and_replace(&mut self) -> Result<()> {
         let local_path = &self.task.payload.local_path;
-        let inventory_meta = self
-            .inventory_meta
-            .as_ref()
-            .expect("inventory_meta should be set");
-
         info!(
             target: "tasks::download",
             task_id = %self.task.task_id,
@@ -324,8 +319,8 @@ impl<'a> DownloadTask<'a> {
         // Get download URL from server using inventory metadata for entity validation
         let mut request = FileURLService::default();
         request.uris.push(uri.clone());
-        if !inventory_meta.etag.is_empty() {
-            request.entity = Some(inventory_meta.etag.clone());
+        if self.remote_file_info.as_ref().map(|f|f.primary_entity.is_some()).unwrap_or(false) {
+            request.entity = self.remote_file_info.as_ref().unwrap().primary_entity.clone();
         }
 
         let entity_url_res = self
