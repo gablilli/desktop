@@ -641,6 +641,10 @@ impl Mount {
                     path = %path.display(),
                     "Queueing download task"
                 );
+
+                // Cancel ongoing tasks
+                let _ = self.task_queue.cancel_by_path(path.clone()).await;
+
                 if let Err(err) = self
                     .task_queue
                     .enqueue(TaskPayload::download(path.clone()))
@@ -1084,7 +1088,8 @@ impl Mount {
         plan: &mut SyncPlan,
     ) {
         if !local.is_placeholder() || !local.in_sync() {
-            let conflicting = inventory.is_some_and(|inv| inv.conflict_state == Some(ConflictState::Pending));
+            let conflicting =
+                inventory.is_some_and(|inv| inv.conflict_state == Some(ConflictState::Pending));
             if !conflicting {
                 plan.actions.push(SyncAction::QueueUpload {
                     path: path.clone(),
@@ -1095,15 +1100,16 @@ impl Mount {
         }
 
         let pinned = local.pinned();
-        plan.actions.push(SyncAction::UpdateInventoryFromRemote {
-            path: path.clone(),
-            remote: remote.clone(),
-            invalidate_all: !local.partial_on_disk() && pinned != PinState::Pinned,
-        });
         if pinned == PinState::Pinned {
             plan.actions.push(SyncAction::QueueDownload {
                 path: path.clone(),
                 remote: remote.clone(),
+            });
+        } else {
+            plan.actions.push(SyncAction::UpdateInventoryFromRemote {
+                path: path.clone(),
+                remote: remote.clone(),
+                invalidate_all: !local.partial_on_disk(),
             });
         }
     }

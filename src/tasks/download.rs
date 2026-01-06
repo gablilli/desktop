@@ -169,6 +169,8 @@ pub struct DownloadTask<'a> {
     task: &'a QueuedTask,
     local_file_info: Option<LocalFileInfo>,
     inventory_meta: Option<FileMetadata>,
+    /// Latest file info fetched from remote before download
+    remote_file_info: Option<cloudreve_api::models::explorer::FileResponse>,
     cancel_token: CancellationToken,
     progress_map: Arc<DashMap<String, TaskProgress>>,
 }
@@ -189,6 +191,7 @@ impl<'a> DownloadTask<'a> {
             drive_id,
             local_file_info: None,
             inventory_meta: None,
+            remote_file_info: None,
             task,
             sync_path,
             remote_base,
@@ -303,7 +306,22 @@ impl<'a> DownloadTask<'a> {
         .context("failed to convert local path to cloudreve uri")?
         .to_string();
 
-        // Get download URL from server using inventory metadata
+        // Fetch latest file info from remote before download
+        let file_info = self
+            .cr_client
+            .get_file_info(&cloudreve_api::models::explorer::GetFileInfoService {
+                uri: Some(uri.clone()),
+                id: None,
+                extended: None,
+                folder_summary: None,
+            })
+            .await
+            .context("failed to get file info from remote")?;
+
+        let file_size = file_info.size as u64;
+        self.remote_file_info = Some(file_info);
+
+        // Get download URL from server using inventory metadata for entity validation
         let mut request = FileURLService::default();
         request.uris.push(uri.clone());
         if !inventory_meta.etag.is_empty() {
@@ -327,11 +345,9 @@ impl<'a> DownloadTask<'a> {
             target: "tasks::download",
             task_id = %self.task.task_id,
             download_url = %download_url,
+            file_size = file_size,
             "Got download URL"
         );
-
-        // Use file size from inventory metadata
-        let file_size = inventory_meta.size as u64;
 
         // Create temp file for download
         let temp_dir = std::env::temp_dir();
@@ -447,10 +463,10 @@ impl<'a> DownloadTask<'a> {
     /// Replace the placeholder file content with the downloaded file and commit using CrPlaceholder
     fn replace_and_commit_placeholder(&mut self, temp_path: &PathBuf) -> Result<()> {
         let local_path = &self.task.payload.local_path;
-        let inventory_meta = self
-            .inventory_meta
+        let remote_file_info = self
+            .remote_file_info
             .as_ref()
-            .expect("inventory_meta should be set");
+            .expect("remote_file_info should be set");
 
         debug!(
             target: "tasks::download",
@@ -514,10 +530,10 @@ impl<'a> DownloadTask<'a> {
 
         // Use CrPlaceholder to convert and mark as in-sync
         let drive_id = Uuid::from_str(self.drive_id).context("invalid drive ID")?;
-        // Create CrPlaceholder and commit changes
+        // Create CrPlaceholder and commit changes using the latest remote file info
         let mut cr_placeholder =
             CrPlaceholder::new(local_path.clone(), self.sync_path.clone(), drive_id)
-                .with_file_meta(inventory_meta.clone());
+                .with_remote_file(remote_file_info);
 
         cr_placeholder
             .commit(self.inventory.clone())
