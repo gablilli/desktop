@@ -3,12 +3,14 @@
 
 mod explorer_command;
 mod factory;
+mod resolve_conflict;
 mod sub_commands;
 mod sync_now;
 mod view_online;
 
 pub use explorer_command::CrExplorerCommandHandler;
 pub use factory::CrExplorerCommandFactory;
+pub use resolve_conflict::ResolveConflictCommandHandler;
 pub use sub_commands::SubCommands;
 pub use sync_now::SyncNowCommandHandler;
 pub use view_online::ViewOnlineCommandHandler;

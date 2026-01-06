@@ -1,6 +1,6 @@
-use crate::{drive::commands::ManagerCommand, utils::app::AppRoot};
 use crate::drive::manager::DriveManager;
 use crate::drive::sync::SyncMode;
+use crate::{drive::commands::ManagerCommand, utils::app::AppRoot};
 use rust_i18n::t;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -34,7 +34,7 @@ impl IExplorerCommand_Impl for SyncNowCommandHandler_Impl {
                         t!("syncNow")
                     } else {
                         t!("syncSelectedNow")
-                    }arr
+                    }
                 }
                 None => t!("syncNow"),
             }
