@@ -1098,7 +1098,7 @@ impl Mount {
         plan.actions.push(SyncAction::UpdateInventoryFromRemote {
             path: path.clone(),
             remote: remote.clone(),
-            invalidate_all: !local.partial_on_disk(),
+            invalidate_all: !local.partial_on_disk() && pinned != PinState::Pinned,
         });
         if pinned == PinState::Pinned {
             plan.actions.push(SyncAction::QueueDownload {
