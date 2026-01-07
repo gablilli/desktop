@@ -295,6 +295,11 @@ impl Mount {
                 .context("failed to register sync root")?;
         }
 
+        // Add to search indexer for state management
+        if let Err(e) = sync_root_id.index() {
+            tracing::warn!(target: "drive::mounts", id = %self.id, error = %e, "Failed to add sync root to search indexer");
+        }
+
         tracing::info!(target: "drive::mounts",sync_path = %config.sync_path.display(), id = %self.id, "Connecting to sync root");
         let connection = Session::new()
             .connect(
