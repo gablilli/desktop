@@ -11,6 +11,20 @@ use tokio::sync::OnceCell;
 
 mod commands;
 
+#[macro_use]
+extern crate rust_i18n;
+
+i18n!("../locales");
+
+/// Initialize i18n based on system locale
+fn init_i18n() {
+    use rust_i18n::set_locale;
+    use sys_locale::get_locale;
+
+    let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
+    set_locale(locale.as_str());
+}
+
 /// Application state containing the drive manager and event broadcaster
 pub struct AppState {
     pub drive_manager: Arc<DriveManager>,
@@ -25,9 +39,6 @@ static APP_STATE: OnceCell<AppState> = OnceCell::const_new();
 
 /// Initialize the sync service (DriveManager, shell services, etc.)
 async fn init_sync_service(app: AppHandle) -> anyhow::Result<()> {
-    // Initialize i18n
-    cloudreve_sync::init_i18n();
-
     // Initialize app root (Windows Package detection)
     cloudreve_sync::init_app_root();
 
@@ -157,8 +168,8 @@ async fn shutdown() {
 /// Setup the system tray icon
 fn setup_tray(app: &tauri::App) -> anyhow::Result<()> {
     // Create menu items
-    let show_i = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let show_i = MenuItem::with_id(app, "show", t!("show").as_ref(), true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", t!("quit").as_ref(), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
 
     // Build tray icon
@@ -201,6 +212,9 @@ fn setup_tray(app: &tauri::App) -> anyhow::Result<()> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize i18n
+    init_i18n();
+
     tauri::Builder::default()
         .setup(|app| {
             // Setup system tray

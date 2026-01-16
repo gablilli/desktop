@@ -17,16 +17,7 @@ pub use logging::{LogConfig, LogGuard};
 #[macro_use]
 extern crate rust_i18n;
 
-i18n!("locales");
-
-/// Initialize i18n based on system locale
-pub fn init_i18n() {
-    use rust_i18n::set_locale;
-    use sys_locale::get_locale;
-
-    let locale = get_locale().unwrap_or_else(|| String::from("en-US"));
-    set_locale(locale.as_str());
-}
+i18n!("../../locales");
 
 /// Initialize the application root path (Windows Package detection)
 pub fn init_app_root() {

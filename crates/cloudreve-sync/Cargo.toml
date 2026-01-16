@@ -33,7 +33,6 @@ diesel_migrations = { version = "2.1", features = ["sqlite"] }
 libsqlite3-sys = { version = "0.28", features = ["bundled"] }
 open = "5.3.2"
 rust-i18n = "3"
-sys-locale="0"
 dark-light = "2.0.0"
 bytes = "1"
 notify-debouncer-full = "0.6.0"

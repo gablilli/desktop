@@ -50,3 +50,9 @@ newName:
 resolveConflict:
   en-US: "Resolve conflict"
   zh-CN: "解决冲突"
+quit:
+  en-US: "Quit"
+  zh-CN: "退出"
+show:
+  en-US: "Show"
+  zh-CN: "显示"
