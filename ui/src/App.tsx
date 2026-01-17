@@ -1,35 +1,43 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Suspense } from "react";
+import { ThemeProvider, CssBaseline, CircularProgress, Box } from "@mui/material";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import "@fontsource/roboto/300.css";
+import "@fontsource/roboto/400.css";
+import "@fontsource/roboto/500.css";
+import "@fontsource/roboto/700.css";
+import "./i18n";
+import { theme } from "./theme";
+import AddDrive from "./pages/AddDrive";
 
-function App() {
-  const [count, setCount] = useState(0)
-
+function LoadingFallback() {
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <Box
+      sx={{
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "center",
+        minHeight: "100vh",
+      }}
+    >
+      <CircularProgress />
+    </Box>
+  );
 }
 
-export default App
+function App() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<AddDrive />} />
+            <Route path="/add-drive" element={<AddDrive />} />
+          </Routes>
+        </BrowserRouter>
+      </ThemeProvider>
+    </Suspense>
+  );
+}
+
+export default App;

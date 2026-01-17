@@ -1,0 +1,9 @@
+{
+  "addDrive": {
+    "title": "添加网盘",
+    "description": "输入您的 Cloudreve 站点 URL 进行连接",
+    "siteUrl": "站点 URL",
+    "siteUrlPlaceholder": "https://your-cloudreve-site.com",
+    "connect": "连接"
+  }
+}

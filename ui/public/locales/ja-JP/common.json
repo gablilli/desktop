@@ -1,0 +1,9 @@
+{
+  "addDrive": {
+    "title": "ドライブを追加",
+    "description": "Cloudreve サイトの URL を入力して接続",
+    "siteUrl": "サイト URL",
+    "siteUrlPlaceholder": "https://your-cloudreve-site.com",
+    "connect": "接続"
+  }
+}

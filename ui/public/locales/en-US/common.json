@@ -1,0 +1,9 @@
+{
+  "addDrive": {
+    "title": "Add Drive",
+    "description": "Enter your Cloudreve site URL to connect",
+    "siteUrl": "Site URL",
+    "siteUrlPlaceholder": "https://your-cloudreve-site.com",
+    "connect": "Connect"
+  }
+}

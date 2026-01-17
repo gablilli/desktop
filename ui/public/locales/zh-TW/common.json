@@ -1,0 +1,9 @@
+{
+  "addDrive": {
+    "title": "新增雲端硬碟",
+    "description": "輸入您的 Cloudreve 站點 URL 進行連接",
+    "siteUrl": "站點 URL",
+    "siteUrlPlaceholder": "https://your-cloudreve-site.com",
+    "connect": "連接"
+  }
+}
