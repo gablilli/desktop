@@ -5,6 +5,10 @@
     "siteUrl": "站點 URL",
     "siteUrlPlaceholder": "https://your-cloudreve-site.com",
     "connect": "連接",
+    "waitingTitle": "登入以繼續",
+    "waitingDescription": "請在瀏覽器中完成登入流程以連接您的雲端硬碟。",
+    "reopenBrowser": "重新開啟瀏覽器",
+    "back": "返回",
     "errors": {
       "httpError": "HTTP 錯誤：{{status}}",
       "apiError": "API 錯誤：{{message}}",

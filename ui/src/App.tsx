@@ -25,7 +25,6 @@ function LoadingFallback() {
         height:"80vh"
       }}
     >
-      <CircularProgress />
     </Box>
   );
 }

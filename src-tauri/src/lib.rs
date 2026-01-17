@@ -218,6 +218,7 @@ pub fn run() {
     init_i18n();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {}))
         .plugin(tauri_plugin_frame::init())

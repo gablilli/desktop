@@ -5,6 +5,10 @@
     "siteUrl": "サイト URL",
     "siteUrlPlaceholder": "https://your-cloudreve-site.com",
     "connect": "接続",
+    "waitingTitle": "サインインして続行",
+    "waitingDescription": "ブラウザでサインインを完了して、ドライブを接続してください。",
+    "reopenBrowser": "ブラウザを再度開く",
+    "back": "戻る",
     "errors": {
       "httpError": "HTTP エラー: {{status}}",
       "apiError": "API エラー: {{message}}",

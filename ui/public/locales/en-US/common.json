@@ -5,6 +5,10 @@
     "siteUrl": "Site URL",
     "siteUrlPlaceholder": "https://your-cloudreve-site.com",
     "connect": "Connect",
+    "waitingTitle": "Sign in to continue",
+    "waitingDescription": "Complete the sign-in process in your browser to connect your drive.",
+    "reopenBrowser": "Open Browser Again",
+    "back": "Back",
     "errors": {
       "httpError": "HTTP error: {{status}}",
       "apiError": "API error: {{message}}",
