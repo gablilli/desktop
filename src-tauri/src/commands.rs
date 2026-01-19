@@ -1,4 +1,5 @@
 use crate::AppStateHandle;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{Duration, Utc};
 use cloudreve_sync::{Credentials, DriveConfig, StatusSummary};
 #[cfg(target_os = "macos")]
@@ -139,6 +140,38 @@ pub async fn get_status_summary(
         .get_status_summary(drive_id.as_deref())
         .await
         .map_err(|e| e.to_string())
+}
+
+/// File icon response containing base64 encoded RGBA pixel data
+#[derive(serde::Serialize)]
+pub struct FileIconResponse {
+    /// Base64 encoded RGBA pixel data
+    pub data: String,
+    /// Icon width in pixels
+    pub width: u32,
+    /// Icon height in pixels
+    pub height: u32,
+}
+
+/// Get file icon for a given path
+/// Returns base64 encoded RGBA pixel data with dimensions
+#[tauri::command]
+pub async fn get_file_icon(path: String, size: Option<u16>) -> CommandResult<FileIconResponse> {
+    let icon_size = size.unwrap_or(32);
+
+    // Run the blocking icon retrieval in a separate thread
+    let result = tokio::task::spawn_blocking(move || {
+        file_icon_provider::get_file_icon(&path, icon_size)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .map_err(|e| format!("Failed to get file icon: {:?}", e))?;
+
+    Ok(FileIconResponse {
+        data: BASE64.encode(&result.pixels),
+        width: result.width,
+        height: result.height,
+    })
 }
 
 /// Show or create the main window

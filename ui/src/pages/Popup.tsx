@@ -10,22 +10,25 @@ import {
   Typography,
   Divider,
   Stack,
+  Skeleton,
 } from "@mui/material";
 import {
   Settings as SettingsIcon,
   Add as AddIcon,
-  InsertDriveFile as FileIcon,
+  InsertDriveFile as DefaultFileIcon,
   Folder as FolderIcon,
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
   CloudUpload as UploadIcon,
   CloudDownload as DownloadIcon,
 } from "@mui/icons-material";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "react-i18next";
-import defaultLogo from "../assets/cloudreve.svg";
+import { useTheme } from "@mui/material/styles";
+import logoDark from "../assets/logo.svg";
+import logoLight from "../assets/logo_light.svg";
 
 interface DriveConfig {
   id: string;
@@ -70,6 +73,15 @@ interface StatusSummary {
   finished_tasks: TaskRecord[];
 }
 
+interface FileIconResponse {
+  data: string; // Base64 encoded RGBA pixel data
+  width: number;
+  height: number;
+}
+
+// Global cache for file icons to avoid repeated fetches
+const iconCache = new Map<string, string>();
+
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
   const k = 1024;
@@ -93,6 +105,159 @@ function getFileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+// Convert base64 RGBA data to a data URL using canvas
+function rgbaToDataUrl(
+  base64Data: string,
+  width: number,
+  height: number
+): string {
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+
+  const imageData = ctx.createImageData(width, height);
+  imageData.data.set(bytes);
+  ctx.putImageData(imageData, 0, 0);
+
+  return canvas.toDataURL("image/png");
+}
+
+interface FileIconProps {
+  path: string;
+  size?: number;
+}
+
+function FileIcon({ path, size = 24 }: FileIconProps) {
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Get cache key based on path extension (icons are same for same file types)
+  const cacheKey = useMemo(() => {
+    const ext = path.split(".").pop()?.toLowerCase() || "unknown";
+    return `${ext}_${size}`;
+  }, [path, size]);
+
+  // Intersection Observer for lazy loading
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  // Fetch icon only when visible
+  useEffect(() => {
+    if (!isVisible) return;
+
+    let mounted = true;
+
+    const fetchIcon = async () => {
+      // Check cache first
+      const cached = iconCache.get(cacheKey);
+      if (cached) {
+        setIconUrl(cached);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const response = await invoke<FileIconResponse>("get_file_icon", {
+          path,
+          size: 64,
+        });
+
+        if (!mounted) return;
+
+        const dataUrl = rgbaToDataUrl(
+          response.data,
+          response.width,
+          response.height
+        );
+
+        if (dataUrl) {
+          iconCache.set(cacheKey, dataUrl);
+          setIconUrl(dataUrl);
+        } else {
+          setError(true);
+        }
+      } catch (err) {
+        console.error("Failed to fetch file icon:", err);
+        if (mounted) {
+          setError(true);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchIcon();
+
+    return () => {
+      mounted = false;
+    };
+  }, [isVisible, path, size, cacheKey]);
+
+  // Show placeholder until visible
+  if (!isVisible) {
+    return (
+      <Box
+        ref={containerRef}
+        sx={{ width: size, height: size, display: "flex", alignItems: "center", justifyContent: "center" }}
+      >
+        <DefaultFileIcon sx={{ fontSize: size }} color="action" />
+      </Box>
+    );
+  }
+
+  if (loading) {
+    return <Skeleton variant="rectangular" width={size} height={size} />;
+  }
+
+  if (error || !iconUrl) {
+    return <DefaultFileIcon sx={{ fontSize: size }} color="action" />;
+  }
+
+  return (
+    <Box
+      component="img"
+      src={iconUrl}
+      alt="file icon"
+      sx={{
+        width: size,
+        height: size,
+        objectFit: "contain",
+      }}
+    />
+  );
+}
+
 interface TaskItemProps {
   task: TaskWithProgress | TaskRecord;
   isActive?: boolean;
@@ -105,22 +270,22 @@ function TaskItem({ task, isActive = false }: TaskItemProps) {
   const isUpload = task.task_type === "upload";
   const fileName = getFileName(task.local_path);
 
-  const getStatusIcon = () => {
+  const getStatusBadge = () => {
     if (isActive) {
       return isUpload ? (
-        <UploadIcon color="primary" />
+        <UploadIcon sx={{ fontSize: 14 }} color="primary" />
       ) : (
-        <DownloadIcon color="primary" />
+        <DownloadIcon sx={{ fontSize: 14 }} color="primary" />
       );
     }
     switch (task.status) {
       case "Completed":
-        return <CheckCircleIcon color="success" />;
+        return <CheckCircleIcon sx={{ fontSize: 14 }} color="success" />;
       case "Failed":
       case "Cancelled":
-        return <ErrorIcon color="error" />;
+        return <ErrorIcon sx={{ fontSize: 14 }} color="error" />;
       default:
-        return <FileIcon color="action" />;
+        return null;
     }
   };
 
@@ -137,6 +302,8 @@ function TaskItem({ task, isActive = false }: TaskItemProps) {
     return formatRelativeTime(task.updated_at);
   };
 
+  const statusBadge = getStatusBadge();
+
   return (
     <ListItem
       sx={{
@@ -148,7 +315,29 @@ function TaskItem({ task, isActive = false }: TaskItemProps) {
         },
       }}
     >
-      <ListItemIcon sx={{ minWidth: 40 }}>{getStatusIcon()}</ListItemIcon>
+      <ListItemIcon sx={{ minWidth: 40 }}>
+        <Box sx={{ position: "relative", width: 28, height: 28 }}>
+          <FileIcon path={task.local_path} size={28} />
+          {statusBadge && (
+            <Box
+              sx={{
+                position: "absolute",
+                bottom: -4,
+                right: -4,
+                bgcolor: "background.paper",
+                borderRadius: "50%",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 18,
+                height: 18,
+              }}
+            >
+              {statusBadge}
+            </Box>
+          )}
+        </Box>
+      </ListItemIcon>
       <ListItemText
         primary={
           <Typography variant="body2" noWrap sx={{ fontWeight: 500 }}>
@@ -176,10 +365,14 @@ function TaskItem({ task, isActive = false }: TaskItemProps) {
 
 export default function Popup() {
   const { t } = useTranslation();
+  const theme = useTheme();
   const [summary, setSummary] = useState<StatusSummary | null>(null);
   const [selectedDrive, setSelectedDrive] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const isFetchingRef = useRef(false);
+
+  // Select logo based on theme mode
+  const logo = theme.palette.mode === "dark" ? logoLight : logoDark;
 
   // Close window on blur (when it loses focus)
   useEffect(() => {
@@ -275,6 +468,8 @@ export default function Popup() {
           pb: 1,
           borderBottom: 1,
           borderColor: "divider",
+          backgroundColor: (theme) =>
+          theme.palette.mode === "light" ? theme.palette.grey[100] : theme.palette.grey[900],
         }}
       >
         {/* Top row: Logo and Settings */}
@@ -289,13 +484,10 @@ export default function Popup() {
           <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
             <Box
               component="img"
-              src={defaultLogo}
+              src={logo}
               alt="Cloudreve"
-              sx={{ width: 28, height: 28 }}
+              sx={{  height: 28 }}
             />
-            <Typography variant="subtitle1" fontWeight={600}>
-              Cloudreve
-            </Typography>
           </Box>
           <IconButton size="small" onClick={handleSettings}>
             <SettingsIcon fontSize="small" />
