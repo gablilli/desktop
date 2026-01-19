@@ -96,7 +96,7 @@ impl TaskPayload {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TaskProgress {
     pub task_id: String,
     pub kind: TaskKind,

@@ -2,10 +2,13 @@ use anyhow::Context;
 use cloudreve_sync::{DriveManager, EventBroadcaster, LogConfig, LogGuard};
 use std::sync::Arc;
 use tauri::{
-    AppHandle, Emitter, Manager, RunEvent, async_runtime::spawn, menu::{Menu, MenuItem}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
+    async_runtime::spawn,
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, RunEvent,
 };
-use tokio::sync::OnceCell;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tokio::sync::OnceCell;
 
 use crate::commands::{show_add_drive_window, show_main_window};
 mod commands;
@@ -195,6 +198,7 @@ fn setup_tray(app: &tauri::App) -> anyhow::Result<()> {
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
+            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -219,7 +223,7 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             tracing::info!("a new app instance was opened with {argv:?} and the deep link event was already triggered");
             if argv.len() > 1 {
-                app.emit("deeplink", argv[1].clone());
+                let _ = app.emit("deeplink", argv[1].clone());
             }
             // when defining deep link schemes at runtime, you must also check `argv` here
         }))
@@ -229,6 +233,9 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(desktop)]
+            let _ = app.handle().plugin(tauri_plugin_positioner::init());
+
             // Setup system tray
             setup_tray(app)?;
 
@@ -244,6 +251,11 @@ pub fn run() {
                 }
             });
 
+            // close default main window
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.destroy();
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -251,6 +263,7 @@ pub fn run() {
             commands::add_drive,
             commands::remove_drive,
             commands::get_sync_status,
+            commands::get_status_summary,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

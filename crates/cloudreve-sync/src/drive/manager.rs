@@ -3,7 +3,8 @@ use super::mounts::{DriveConfig, Mount};
 use crate::EventBroadcaster;
 use crate::drive::commands::MountCommand;
 use crate::drive::utils::{local_path_to_cr_uri, view_online_url};
-use crate::inventory::InventoryDb;
+use crate::inventory::{InventoryDb, RecentTasks, TaskRecord, TaskStatus};
+use crate::tasks::TaskProgress;
 use crate::utils::toast::send_conflict_toast;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,27 @@ impl Default for DriveState {
             drives: HashMap::new(),
         }
     }
+}
+
+/// Summary of the current status including drives and recent tasks
+#[derive(Debug, Clone, Serialize)]
+pub struct StatusSummary {
+    /// All configured drives (unfiltered)
+    pub drives: Vec<DriveConfig>,
+    /// Active tasks (pending/running) with optional live progress info
+    pub active_tasks: Vec<TaskWithProgress>,
+    /// Recently finished tasks (completed/failed/cancelled)
+    pub finished_tasks: Vec<TaskRecord>,
+}
+
+/// A task record with optional live progress information
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskWithProgress {
+    /// The task record from the database
+    #[serde(flatten)]
+    pub task: TaskRecord,
+    /// Live progress information for running tasks (None if task is not currently running)
+    pub live_progress: Option<TaskProgress>,
 }
 
 pub struct DriveManager {
@@ -291,6 +313,62 @@ impl DriveManager {
             "last_sync": null,
             "files_synced": 0,
         }))
+    }
+
+    /// Get a summary of the current status including all drives and recent tasks.
+    ///
+    /// # Arguments
+    /// * `drive_id` - Optional drive ID to filter tasks. If None, returns tasks from all drives.
+    ///                Note: drives list always returns all drives regardless of this filter.
+    pub async fn get_status_summary(&self, drive_id: Option<&str>) -> Result<StatusSummary> {
+        // Get all drive configs (unfiltered)
+        let read_guard = self.drives.read().await;
+        let mut drives = Vec::with_capacity(read_guard.len());
+        for mount in read_guard.values() {
+            drives.push(mount.get_config().await);
+        }
+
+        // Query recent tasks from inventory (filtered by drive_id if provided)
+        let recent_tasks = self
+            .inventory
+            .query_recent_tasks(drive_id)
+            .context("Failed to query recent tasks")?;
+
+        // Collect running task progress from all task queues
+        // Build a map of task_id -> TaskProgress for quick lookup
+        let mut progress_map: HashMap<String, TaskProgress> = HashMap::new();
+
+        if let Some(drive_filter) = drive_id {
+            // If filtering by drive, only get progress from that drive's task queue
+            if let Some(mount) = read_guard.get(drive_filter) {
+                for progress in mount.task_queue.ongoing_progress().await {
+                    progress_map.insert(progress.task_id.clone(), progress);
+                }
+            }
+        } else {
+            // Get progress from all drives
+            for mount in read_guard.values() {
+                for progress in mount.task_queue.ongoing_progress().await {
+                    progress_map.insert(progress.task_id.clone(), progress);
+                }
+            }
+        }
+
+        // Merge progress info into active tasks
+        let active_tasks: Vec<TaskWithProgress> = recent_tasks
+            .active
+            .into_iter()
+            .map(|task| {
+                let progress = progress_map.remove(&task.id);
+                TaskWithProgress { task, live_progress: progress }
+            })
+            .collect();
+
+        Ok(StatusSummary {
+            drives,
+            active_tasks,
+            finished_tasks: recent_tasks.finished,
+        })
     }
 
     /// Get a command sender for external code to send commands to the manager

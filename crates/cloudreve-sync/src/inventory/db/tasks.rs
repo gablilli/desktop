@@ -150,6 +150,78 @@ impl InventoryDb {
             None => Ok(None),
         }
     }
+
+    /// Query recent tasks for status summary.
+    /// Returns up to 25 pending/running tasks and up to 25 completed/failed/cancelled tasks,
+    /// ordered by updated_at descending.
+    pub fn query_recent_tasks(&self, drive_id: Option<&str>) -> Result<RecentTasks> {
+        let mut conn = self.connection()?;
+
+        // Query active tasks (pending/running) - limit 25, order by updated_at desc
+        let active_statuses = vec![
+            TaskStatus::Pending.as_str().to_string(),
+            TaskStatus::Running.as_str().to_string(),
+        ];
+
+        let mut active_query = task_queue_dsl::task_queue
+            .filter(task_queue_dsl::status.eq_any(&active_statuses))
+            .into_boxed();
+
+        if let Some(drive) = drive_id {
+            active_query = active_query.filter(task_queue_dsl::drive_id.eq(drive));
+        }
+
+        let active_rows = active_query
+            .order(task_queue_dsl::updated_at.desc())
+            .limit(25)
+            .load::<TaskRow>(&mut conn)
+            .context("Failed to query active tasks")?;
+
+        let active_tasks: Vec<TaskRecord> = active_rows
+            .into_iter()
+            .map(TaskRecord::try_from)
+            .collect::<Result<Vec<_>>>()?;
+
+        // Query finished tasks (completed/failed/cancelled) - limit 25, order by updated_at desc
+        let finished_statuses = vec![
+            TaskStatus::Completed.as_str().to_string(),
+            TaskStatus::Failed.as_str().to_string(),
+            TaskStatus::Cancelled.as_str().to_string(),
+        ];
+
+        let mut finished_query = task_queue_dsl::task_queue
+            .filter(task_queue_dsl::status.eq_any(&finished_statuses))
+            .into_boxed();
+
+        if let Some(drive) = drive_id {
+            finished_query = finished_query.filter(task_queue_dsl::drive_id.eq(drive));
+        }
+
+        let finished_rows = finished_query
+            .order(task_queue_dsl::updated_at.desc())
+            .limit(25)
+            .load::<TaskRow>(&mut conn)
+            .context("Failed to query finished tasks")?;
+
+        let finished_tasks: Vec<TaskRecord> = finished_rows
+            .into_iter()
+            .map(TaskRecord::try_from)
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(RecentTasks {
+            active: active_tasks,
+            finished: finished_tasks,
+        })
+    }
+}
+
+/// Result of querying recent tasks
+#[derive(Debug, Clone)]
+pub struct RecentTasks {
+    /// Pending and running tasks (up to 25)
+    pub active: Vec<TaskRecord>,
+    /// Completed, failed, and cancelled tasks (up to 25)
+    pub finished: Vec<TaskRecord>,
 }
 
 // =========================================================================

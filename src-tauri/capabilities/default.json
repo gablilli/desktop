@@ -4,7 +4,8 @@
   "description": "enables the default permissions",
   "windows": [
     "main",
-    "add-drive"
+    "add-drive",
+    "main_popup"
   ],
   "permissions": [
     "core:default",

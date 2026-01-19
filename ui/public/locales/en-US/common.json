@@ -28,5 +28,15 @@
       "stateMismatch": "Authentication failed: state mismatch. Please try again.",
       "addDriveFailed": "Failed to add drive: {{message}}"
     }
+  },
+  "popup": {
+    "allDrives": "All",
+    "newDrive": "New Drive",
+    "loading": "Loading...",
+    "noActivity": "No recent activity",
+    "syncing": "Syncing",
+    "recent": "Recent",
+    "syncingStatus": "Syncing {{count}} file(s)...",
+    "upToDate": "Your files are up to date"
   }
 }

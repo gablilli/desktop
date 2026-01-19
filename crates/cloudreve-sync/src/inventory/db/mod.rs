@@ -3,6 +3,8 @@ mod file_metadata;
 mod tasks;
 mod upload_sessions;
 
+pub use tasks::RecentTasks;
+
 use anyhow::{Context, Result, anyhow};
 use diesel::Connection;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};

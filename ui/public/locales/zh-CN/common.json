@@ -28,5 +28,15 @@
       "stateMismatch": "认证失败：状态不匹配。请重试。",
       "addDriveFailed": "添加失败：{{message}}"
     }
+  },
+  "popup": {
+    "allDrives": "全部",
+    "newDrive": "新建网盘",
+    "loading": "加载中...",
+    "noActivity": "暂无最近活动",
+    "syncing": "同步中",
+    "recent": "最近",
+    "syncingStatus": "正在同步 {{count}} 个文件...",
+    "upToDate": "文件已是最新"
   }
 }

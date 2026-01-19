@@ -2,11 +2,10 @@ import { Suspense, useMemo } from "react";
 import {
   ThemeProvider,
   CssBaseline,
-  CircularProgress,
   Box,
   useMediaQuery,
 } from "@mui/material";
-import { BrowserRouter, Routes, Route, HashRouter } from "react-router-dom";
+import { Routes, Route, HashRouter } from "react-router-dom";
 import "@fontsource/roboto/300.css";
 import "@fontsource/roboto/400.css";
 import "@fontsource/roboto/500.css";
@@ -14,6 +13,7 @@ import "@fontsource/roboto/700.css";
 import "./i18n";
 import { createAppTheme } from "./theme";
 import AddDrive from "./pages/AddDrive";
+import Popup from "./pages/Popup";
 
 function LoadingFallback() {
   return (
@@ -43,6 +43,7 @@ function App() {
         <HashRouter>
           <Routes>
             <Route path="/add-drive" element={<AddDrive />} />
+            <Route path="/popup" element={<Popup />} />
           </Routes>
         </HashRouter>
       </ThemeProvider>

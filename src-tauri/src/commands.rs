@@ -1,6 +1,6 @@
 use crate::AppStateHandle;
 use chrono::{Duration, Utc};
-use cloudreve_sync::{Credentials, DriveConfig};
+use cloudreve_sync::{Credentials, DriveConfig, StatusSummary};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{
@@ -9,6 +9,7 @@ use tauri::{
     AppHandle, Manager, State, WebviewUrl,
 };
 use tauri_plugin_frame::WebviewWindowExt;
+use tauri_plugin_positioner::{WindowExt, Position};
 use uuid::Uuid;
 
 /// Result type for Tauri commands
@@ -124,10 +125,26 @@ pub async fn get_sync_status(
         .map_err(|e| e.to_string())
 }
 
+/// Get status summary including all drives and recent tasks
+#[tauri::command]
+pub async fn get_status_summary(
+    state: State<'_, AppStateHandle>,
+    drive_id: Option<String>,
+) -> CommandResult<StatusSummary> {
+    let app_state = state
+        .get()
+        .ok_or_else(|| "App not yet initialized".to_string())?;
+    app_state
+        .drive_manager
+        .get_status_summary(drive_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Show or create the main window
 pub fn show_main_window(app: &AppHandle) {
     // Check if window already exists
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(window) = app.get_webview_window("main_popup") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -135,18 +152,22 @@ pub fn show_main_window(app: &AppHandle) {
     }
 
     // Create new main window
-    match WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+    match WebviewWindowBuilder::new(app, "main_popup", WebviewUrl::App("index.html/#/popup".into()))
         .title("Cloudreve")
-        .inner_size(800.0, 600.0)
-        .resizable(true)
-        .visible(true)
+        .inner_size(370.0, 530.0)
+        .resizable(false)
+        .visible(false)
+        .decorations(false)
+        .minimizable(false)
         .build()
     {
         Ok(window) => {
+            let _ = window.move_window(Position::TrayCenter);
+            let _ = window.show();
             let _ = window.set_focus();
         }
         Err(e) => {
-            tracing::error!(target: "main", error = %e, "Failed to create main window");
+            tracing::error!(target: "main_popup", error = %e, "Failed to create main window");
         }
     }
 }

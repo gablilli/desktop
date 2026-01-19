@@ -2,7 +2,7 @@ mod db;
 mod models;
 pub(crate) mod schema;
 
-pub use db::InventoryDb;
+pub use db::{InventoryDb, RecentTasks};
 pub use models::{
     ConflictState, DriveProps, DrivePropsUpdate, FileMetadata, MetadataEntry, NewTaskRecord,
     TaskRecord, TaskStatus, TaskUpdate,
