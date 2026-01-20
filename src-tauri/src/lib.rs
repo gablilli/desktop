@@ -1,6 +1,6 @@
 use anyhow::Context;
-use cloudreve_sync::{DriveManager, EventBroadcaster, LogConfig, LogGuard};
-use std::sync::Arc;
+use cloudreve_sync::{DriveManager, EventBroadcaster, LogConfig, LogGuard, shellext::shell_service::ServiceHandle};
+use std::sync::{Arc, Mutex};
 use tauri::{
     async_runtime::spawn,
     menu::{Menu, MenuItem},
@@ -35,6 +35,9 @@ pub struct AppState {
     // Keep the log guard alive for the entire application lifetime
     #[allow(dead_code)]
     log_guard: LogGuard,
+    // Keep the shell service handle alive for the entire application lifetime
+    #[allow(dead_code)]
+    shell_service: Mutex<ServiceHandle>,
 }
 
 /// Global cell to store the app state once initialization is complete
@@ -94,6 +97,7 @@ async fn init_sync_service(app: AppHandle) -> anyhow::Result<()> {
         drive_manager,
         event_broadcaster: event_broadcaster.clone(),
         log_guard,
+        shell_service: Mutex::new(shell_service),
     };
 
     APP_STATE

@@ -50,6 +50,50 @@ pub struct TaskWithProgress {
     pub live_progress: Option<TaskProgress>,
 }
 
+/// Capacity summary for UI display
+#[derive(Debug, Clone, Serialize)]
+pub struct CapacitySummary {
+    /// Total capacity in bytes
+    pub total: i64,
+    /// Used capacity in bytes
+    pub used: i64,
+    /// Formatted label for display (e.g., "152.1 MB / 1.0 GB (14.9%)")
+    pub label: String,
+}
+
+/// Sync status for UI display
+#[derive(Debug, Clone, Serialize)]
+pub enum SyncStatus {
+    /// All files are in sync
+    InSync,
+    /// Currently syncing files
+    Syncing,
+    /// Sync is paused
+    Paused,
+    /// There was an error during sync
+    Error,
+}
+
+/// Drive status information for the Windows Shell UI
+#[derive(Debug, Clone, Serialize)]
+pub struct DriveStatusUI {
+    /// Drive display name
+    pub name: String,
+    /// Path to the raw (non-ICO) icon image
+    pub raw_icon_path: Option<String>,
+    /// Capacity summary (None if not available)
+    pub capacity: Option<CapacitySummary>,
+    /// URL to user profile page
+    pub profile_url: String,
+    /// URL to settings page
+    pub settings_url: String,
+    pub storage_url: String,
+    /// Current sync status
+    pub sync_status: SyncStatus,
+    /// Number of active (pending/running) tasks
+    pub active_task_count: usize,
+}
+
 pub struct DriveManager {
     drives: Arc<RwLock<HashMap<String, Arc<Mount>>>>,
     config_dir: PathBuf,
@@ -186,9 +230,10 @@ impl DriveManager {
                 .unwrap_or(false)
         {
             match super::favicon::fetch_and_save_favicon(&config.instance_url).await {
-                Ok(path) => {
-                    tracing::info!(target: "drive", icon_path = %path, "Favicon fetched successfully");
-                    config.icon_path = Some(path);
+                Ok(result) => {
+                    tracing::info!(target: "drive", ico_path = %result.ico_path, raw_path = %result.raw_path, "Favicon fetched successfully");
+                    config.icon_path = Some(result.ico_path);
+                    config.raw_icon_path = Some(result.raw_path);
                 }
                 Err(e) => {
                     tracing::warn!(target: "drive", error = %e, "Failed to fetch favicon, continuing without icon");
@@ -371,6 +416,120 @@ impl DriveManager {
         })
     }
 
+    /// Get drive status by sync root ID (CFAPI ID) for the Windows Shell Status UI.
+    ///
+    /// # Arguments
+    /// * `syncroot_id` - The sync root ID string (e.g., "cloudreve<hash>!S-1-5-21-xxx!user_id")
+    ///
+    /// # Returns
+    /// * `Ok(Some(DriveStatusUI))` - Drive status if found
+    /// * `Ok(None)` - No drive found with the given sync root ID
+    /// * `Err` - An error occurred
+    pub async fn get_drive_status_by_syncroot_id(
+        &self,
+        syncroot_id: &str,
+    ) -> Result<Option<DriveStatusUI>> {
+        let read_guard = self.drives.read().await;
+
+        // Find the drive with matching sync root ID
+        let mut found_mount: Option<&Arc<Mount>> = None;
+        for mount in read_guard.values() {
+            let config = mount.config.read().await;
+            if let Some(ref sync_root) = config.sync_root_id {
+                let sync_root_str = sync_root.to_os_string().to_string_lossy().to_string();
+                if sync_root_str == syncroot_id {
+                    drop(config);
+                    found_mount = Some(mount);
+                    break;
+                }
+            }
+        }
+
+        let mount = match found_mount {
+            Some(m) => m,
+            None => {
+                tracing::debug!(target: "drive::manager", syncroot_id = %syncroot_id, "No drive found for sync root ID");
+                return Ok(None);
+            }
+        };
+
+        let config = mount.get_config().await;
+        let drive_id = &config.id;
+
+        // Get capacity from drive props
+        let capacity = match mount.get_drive_props() {
+            Ok(Some(props)) => props.capacity.map(|cap| {
+                let percentage = if cap.total > 0 {
+                    (cap.used as f64 / cap.total as f64) * 100.0
+                } else {
+                    0.0
+                };
+                CapacitySummary {
+                    total: cap.total,
+                    used: cap.used,
+                    label: format!(
+                        "{} / {} ({:.1}%)",
+                        format_bytes(cap.used),
+                        format_bytes(cap.total),
+                        percentage
+                    ),
+                }
+            }),
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(target: "drive::manager", drive_id = %drive_id, error = %e, "Failed to get drive props");
+                None
+            }
+        };
+
+        // Build profile URL: siteURL/profile/<user_id>?user_hint=<user_id>
+        let profile_url = format!(
+            "{}/profile/{}?user_hint={}",
+            config.instance_url.trim_end_matches('/'),
+            config.user_id,
+            config.user_id
+        );
+
+        // Build settings URL: siteURL/settings?user_hint=<user_id>
+        let settings_url = format!(
+            "{}/settings?user_hint={}",
+            config.instance_url.trim_end_matches('/'),
+            config.user_id
+        );
+
+        let storage_url = format!(
+            "{}/settings?tab=storage&user_hint={}",
+            config.instance_url.trim_end_matches('/'),
+            config.user_id
+        );
+
+        // Determine sync status based on active tasks
+        let active_task_count = match self.inventory.query_recent_tasks(Some(drive_id)) {
+            Ok(tasks) => tasks.active.len(),
+            Err(e) => {
+                tracing::warn!(target: "drive::manager", drive_id = %drive_id, error = %e, "Failed to query recent tasks");
+                0
+            }
+        };
+
+        let sync_status = if active_task_count > 0 {
+            SyncStatus::Syncing
+        } else {
+            SyncStatus::InSync
+        };
+
+        Ok(Some(DriveStatusUI {
+            name: config.name.clone(),
+            raw_icon_path: config.raw_icon_path.clone(),
+            capacity,
+            profile_url,
+            settings_url,
+            storage_url,
+            sync_status,
+            active_task_count,
+        }))
+    }
+
     /// Get a command sender for external code to send commands to the manager
     pub fn get_command_sender(&self) -> mpsc::UnboundedSender<ManagerCommand> {
         self.command_tx.clone()
@@ -485,6 +644,34 @@ impl DriveManager {
                         }
                     });
                 }
+                ManagerCommand::GetDriveStatusUI { syncroot_id, response } => {
+                    spawn(async move {
+                        let result = manager.get_drive_status_by_syncroot_id(&syncroot_id).await;
+                        let _ = response.send(result);
+                    });
+                }
+                ManagerCommand::OpenProfileUrl { syncroot_id } => {
+                    spawn(async move {
+                        let result = manager.handle_open_profile_url(&syncroot_id).await;
+                        if let Err(e) = result {
+                            tracing::error!(target: "drive::manager", syncroot_id = %syncroot_id, error = %e, "Failed to open profile URL");
+                        }
+                    });
+                }
+                ManagerCommand::OpenStorageDetailsUrl { syncroot_id } => {
+                    spawn(async move {
+                        let result = manager.handle_open_storage_details_url(&syncroot_id).await;
+                        if let Err(e) = result {
+                            tracing::error!(target: "drive::manager", syncroot_id = %syncroot_id, error = %e, "Failed to open storage details URL");
+                        }
+                    });
+                }
+                ManagerCommand::OpenSyncStatusWindow => {
+                    manager.event_broadcaster.open_sync_status_window();
+                }
+                ManagerCommand::OpenSettingsWindow => {
+                    manager.event_broadcaster.open_settings_window();
+                }
             }
         }
 
@@ -554,6 +741,33 @@ impl DriveManager {
         Ok(())
     }
 
+    /// Handle OpenProfileUrl command - opens user profile page in browser
+    async fn handle_open_profile_url(&self, syncroot_id: &str) -> Result<()> {
+        tracing::debug!(target: "drive::manager", syncroot_id = %syncroot_id, "OpenProfileUrl command");
+
+        let status = self
+            .get_drive_status_by_syncroot_id(syncroot_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("No drive found for syncroot_id: {}", syncroot_id))?;
+
+        open::that(&status.profile_url)?;
+        Ok(())
+    }
+
+    /// Handle OpenStorageDetailsUrl command - opens storage/capacity page in browser
+    async fn handle_open_storage_details_url(&self, syncroot_id: &str) -> Result<()> {
+        tracing::debug!(target: "drive::manager", syncroot_id = %syncroot_id, "OpenStorageDetailsUrl command");
+
+        let status = self
+            .get_drive_status_by_syncroot_id(syncroot_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("No drive found for syncroot_id: {}", syncroot_id))?;
+
+        // Open the profile URL which shows storage details
+        open::that(&status.storage_url)?;
+        Ok(())
+    }
+
     pub async fn shutdown(&self) {
         tracing::info!(target: "drive::manager", "Shutting down DriveManager");
 
@@ -571,5 +785,27 @@ impl DriveManager {
             mount.shutdown().await;
         }
         tracing::info!(target: "drive", "All drives shutdown");
+    }
+}
+
+/// Format bytes into a human-readable string (e.g., "1.5 GB")
+fn format_bytes(bytes: i64) -> String {
+    const KB: f64 = 1024.0;
+    const MB: f64 = KB * 1024.0;
+    const GB: f64 = MB * 1024.0;
+    const TB: f64 = GB * 1024.0;
+
+    let bytes_f = bytes as f64;
+
+    if bytes_f >= TB {
+        format!("{:.1} TB", bytes_f / TB)
+    } else if bytes_f >= GB {
+        format!("{:.1} GB", bytes_f / GB)
+    } else if bytes_f >= MB {
+        format!("{:.1} MB", bytes_f / MB)
+    } else if bytes_f >= KB {
+        format!("{:.1} KB", bytes_f / KB)
+    } else {
+        format!("{} B", bytes)
     }
 }

@@ -11,7 +11,11 @@ pub enum Event {
         connected: bool,
     },
     NoDrive {
-    }
+    },
+    /// Request to open the sync status window
+    OpenSyncStatusWindow,
+    /// Request to open the settings window
+    OpenSettingsWindow,
 }
 
 impl Event {
@@ -19,6 +23,8 @@ impl Event {
         match self {
             Event::ConnectionStatusChanged { .. } => "ConnectionStatusChanged",
             Event::NoDrive {  } => "NoDrive",
+            Event::OpenSyncStatusWindow => "OpenSyncStatusWindow",
+            Event::OpenSettingsWindow => "OpenSettingsWindow",
         }
     }
 }
@@ -77,6 +83,15 @@ impl EventBroadcaster {
         self.broadcast(Event::ConnectionStatusChanged { connected });
     }
 
+    /// Helper: Broadcast open sync status window event
+    pub fn open_sync_status_window(&self) {
+        self.broadcast(Event::OpenSyncStatusWindow);
+    }
+
+    /// Helper: Broadcast open settings window event
+    pub fn open_settings_window(&self) {
+        self.broadcast(Event::OpenSettingsWindow);
+    }
 
     /// Get the number of active subscribers
     pub fn subscriber_count(&self) -> usize {

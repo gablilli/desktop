@@ -35,7 +35,7 @@
   </Resources>
 <Applications>
       <Application Id="Cloudreve.Sync"
-      Executable="cloudreve-sync.exe"
+      Executable="cloudreve-desktop.exe"
       EntryPoint="Windows.FullTrustApplication">
       <uap:VisualElements
         DisplayName="Cloudreve"
@@ -50,11 +50,14 @@
         <uap8:ActiveCodePage>UTF-8</uap8:ActiveCodePage>
       </uap7:Properties>
       <Extensions>
+        <uap:Extension Category="windows.protocol">
+          <uap:Protocol Name="cloudreve" />
+        </uap:Extension>
        <!--Specify which CLSID to activate when toast clicked-->
         <desktop:Extension Category="windows.toastNotificationActivation">
           <desktop:ToastNotificationActivation ToastActivatorCLSID="effe04d9-151d-49da-9eb5-34e01442edfe" /> 
         </desktop:Extension>
-       <desktop3:Extension Category="windows.cloudFiles">
+        <desktop3:Extension Category="windows.cloudFiles">
           <desktop3:CloudFiles>
             <desktop3:CustomStateHandler Clsid="f0c9de6c-6c76-44d7-a58e-579cdf7af263"/>
             <desktop3:ThumbnailProviderHandler Clsid="3d781652-78c5-4038-87a4-ec5940ab560a"/>
@@ -69,19 +72,19 @@
         </desktop3:Extension>
         <com:Extension Category="windows.comServer">
           <com:ComServer>
-           <com:ExeServer Executable="cloudreve-sync.exe" DisplayName="Cloudreve Toast activator">
+           <com:ExeServer Executable="cloudreve-desktop.exe" DisplayName="Cloudreve Toast activator">
               <com:Class Id="effe04d9-151d-49da-9eb5-34e01442edfe" DisplayName="Cloudreve Toast activator"/>
             </com:ExeServer>
-            <com:ExeServer DisplayName="Cloudreve Command Handler" Executable="cloudreve-sync.exe">
+            <com:ExeServer DisplayName="Cloudreve Command Handler" Executable="cloudreve-desktop.exe">
               <com:Class Id="165cd069-d9c8-42b4-8e37-b6971afa4494" />
             </com:ExeServer>
-            <com:ExeServer DisplayName="Cloudreve Custom State Handler" Executable="cloudreve-sync.exe">
+            <com:ExeServer DisplayName="Cloudreve Custom State Handler" Executable="cloudreve-desktop.exe">
               <com:Class Id="f0c9de6c-6c76-44d7-a58e-579cdf7af263" />
             </com:ExeServer>
-            <com:ExeServer DisplayName="Cloudreve Status UI Source Factory" Executable="cloudreve-sync.exe">
+            <com:ExeServer DisplayName="Cloudreve Status UI Source Factory" Executable="cloudreve-desktop.exe">
               <com:Class Id="b1d8ef74-822d-401a-a14a-25f45b1f70b7" />
             </com:ExeServer>
-            <com:ExeServer DisplayName="Cloudreve Thumbnail Handler" Executable="cloudreve-sync.exe">
+            <com:ExeServer DisplayName="Cloudreve Thumbnail Handler" Executable="cloudreve-desktop.exe">
               <com:Class Id="3d781652-78c5-4038-87a4-ec5940ab560a" />
             </com:ExeServer>
           </com:ComServer>

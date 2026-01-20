@@ -37,6 +37,8 @@ pub struct DriveConfig {
     pub credentials: Credentials,
     pub sync_path: PathBuf,
     pub icon_path: Option<String>,
+    /// Path to the raw (non-ICO) favicon image
+    pub raw_icon_path: Option<String>,
     pub enabled: bool,
     pub user_id: String,
 

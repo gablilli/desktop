@@ -70,6 +70,7 @@ pub async fn add_drive(
         },
         sync_path: config.local_path.into(),
         icon_path: None,
+        raw_icon_path: None,
         enabled: true,
         user_id: config.user_id,
         sync_root_id: None,

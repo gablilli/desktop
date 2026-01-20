@@ -59,3 +59,36 @@ show:
 addNewDrive:
   en-US: "Add new drive"
   zh-CN: "添加新云盘"
+syncing:
+  en-US: "Syncing"
+  zh-CN: "正在同步"
+syncingDescription:
+  en-US: "%{count} task(s) in progress"
+  zh-CN: "%{count} 个任务正在进行"
+synced:
+  en-US: "Synced"
+  zh-CN: "已同步"
+syncedDescription:
+  en-US: "All changes are synced to the cloud."
+  zh-CN: "所有更改已同步到云端。"
+paused:
+  en-US: "Paused"
+  zh-CN: "已暂停"
+pausedDescription:
+  en-US: "Sync is paused."
+  zh-CN: "同步已暂停。"
+error:
+  en-US: "Error"
+  zh-CN: "错误"
+errorDescription:
+  en-US: "An error occurred during sync."
+  zh-CN: "同步过程中发生错误。"
+capacityDetails:
+  en-US: "Capacity details"
+  zh-CN: "容量详情"
+profile:
+  en-US: "Profile"
+  zh-CN: "个人资料"
+settings:
+  en-US: "Settings"
+  zh-CN: "设置"

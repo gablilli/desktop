@@ -164,6 +164,23 @@ pub enum ManagerCommand {
     ShowConflictToast {
         path: PathBuf,
     },
+    /// Get drive status UI by sync root ID
+    GetDriveStatusUI {
+        syncroot_id: String,
+        response: Sender<Result<Option<crate::drive::manager::DriveStatusUI>>>,
+    },
+    /// Open user profile URL in browser
+    OpenProfileUrl {
+        syncroot_id: String,
+    },
+    /// Open storage/capacity details URL in browser
+    OpenStorageDetailsUrl {
+        syncroot_id: String,
+    },
+    /// Request to open the sync status window in the UI
+    OpenSyncStatusWindow,
+    /// Request to open the settings window in the UI
+    OpenSettingsWindow,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
