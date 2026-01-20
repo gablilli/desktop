@@ -32,6 +32,7 @@ rust-i18n = "3"
 sys-locale="0"
 base64 = "0.22"
 file_icon_provider = "1.0"
+showfile = "0.1"
 
 # Main sync service crate
 cloudreve-sync = { path = "../crates/cloudreve-sync" }

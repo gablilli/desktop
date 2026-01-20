@@ -265,6 +265,7 @@ pub fn run() {
             commands::get_sync_status,
             commands::get_status_summary,
             commands::get_file_icon,
+            commands::show_file_in_explorer,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

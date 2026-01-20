@@ -21,6 +21,13 @@ export function getFileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+export function getParentFolderName(path: string): string {
+  const parts = path.split(/[/\\]/);
+  // Remove the file name to get parent path parts
+  parts.pop();
+  return parts[parts.length - 1] || "";
+}
+
 export function rgbaToDataUrl(
   base64Data: string,
   width: number,

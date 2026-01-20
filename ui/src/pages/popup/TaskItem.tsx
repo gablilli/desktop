@@ -1,6 +1,7 @@
 import {
   Box,
   LinearProgress,
+  Link,
   ListItem,
   ListItemIcon,
   ListItemText,
@@ -12,8 +13,11 @@ import {
   CloudUpload as UploadIcon,
   CloudDownload as DownloadIcon,
 } from "@mui/icons-material";
+import { invoke } from "@tauri-apps/api/core";
+import TimeAgo from "react-timeago";
+import { useTranslation } from "react-i18next";
 import type { TaskWithProgress, TaskRecord } from "./types";
-import { formatBytes, formatRelativeTime, getFileName } from "./utils";
+import { formatBytes, getFileName, getParentFolderName } from "./utils";
 import FileIcon from "./FileIcon";
 
 interface TaskItemProps {
@@ -22,11 +26,32 @@ interface TaskItemProps {
 }
 
 export default function TaskItem({ task, isActive = false }: TaskItemProps) {
+  const { t } = useTranslation();
   const activeTask = task as TaskWithProgress;
   const liveProgress = activeTask.live_progress;
   const progress = liveProgress?.progress ?? task.progress;
   const isUpload = task.task_type === "upload";
   const fileName = getFileName(task.local_path);
+  const parentFolderName = getParentFolderName(task.local_path);
+  const isFailed = task.status === "Failed";
+
+  const timeAgoFormatter = (
+    value: number,
+    unit: string,
+    suffix: string
+  ): string => {
+    if (unit === "second") {
+      return t("timeAgo.justNow", "Just now");
+    }
+    const unitKey = value === 1 ? unit : `${unit}s`;
+    return t(`timeAgo.${unitKey}${suffix === "ago" ? "Ago" : "FromNow"}`, `${value} ${unitKey} ${suffix}`, { value });
+  };
+
+  const handleShowInExplorer = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    invoke("show_file_in_explorer", { path: task.local_path });
+  };
 
   const getStatusBadge = () => {
     if (isActive) {
@@ -55,12 +80,15 @@ export default function TaskItem({ task, isActive = false }: TaskItemProps) {
       return `${processed} / ${total} - ${speed}/s`;
     }
     if (isActive) {
-      return task.status === "Pending" ? "Waiting..." : "Processing...";
+      return task.status === "Pending"
+        ? t("popup.waiting", "Waiting...")
+        : t("popup.processing", "Processing...");
     }
-    return formatRelativeTime(task.updated_at);
+    return null;
   };
 
   const statusBadge = getStatusBadge();
+  const secondaryText = getSecondaryText();
 
   return (
     <ListItem
@@ -69,7 +97,6 @@ export default function TaskItem({ task, isActive = false }: TaskItemProps) {
         py: 1,
         "&:hover": {
           bgcolor: "action.hover",
-          borderRadius: 1,
         },
       }}
     >
@@ -104,9 +131,38 @@ export default function TaskItem({ task, isActive = false }: TaskItemProps) {
         }
         secondary={
           <Box>
-            <Typography variant="caption" color="text.secondary">
-              {getSecondaryText()}
-            </Typography>
+            {isFailed && task.error ? (
+              <Typography variant="caption" color="error" component="span">
+                {task.error}
+              </Typography>
+            ) : (
+              <Typography variant="caption" color="text.secondary" component="span">
+                {secondaryText ?? (
+                  <TimeAgo
+                    date={task.updated_at * 1000}
+                    formatter={timeAgoFormatter}
+                  />
+                )}
+              </Typography>
+            )}
+            {!isActive && (
+              <>
+                <Typography variant="caption" color="text.secondary" component="span">
+                  {" · "}
+                </Typography>
+                <Link
+                  component="button"
+                  variant="caption"
+                  color="text.secondary"
+                  onClick={handleShowInExplorer}
+                  underline="always"
+                  sx={{
+                  }}
+                >
+                  {parentFolderName}
+                </Link>
+              </>
+            )}
             {isActive && (
               <LinearProgress
                 variant="determinate"

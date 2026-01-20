@@ -37,6 +37,23 @@
     "syncing": "Syncing",
     "recent": "Recent",
     "syncingStatus": "Syncing {{count}} file(s)...",
-    "upToDate": "Your files are up to date"
+    "upToDate": "Your files are up to date.",
+    "waiting": "Waiting...",
+    "processing": "Processing..."
+  },
+  "timeAgo": {
+    "justNow": "Just now",
+    "minuteAgo": "{{value}} minute ago",
+    "minutesAgo": "{{value}} minutes ago",
+    "hourAgo": "{{value}} hour ago",
+    "hoursAgo": "{{value}} hours ago",
+    "dayAgo": "{{value}} day ago",
+    "daysAgo": "{{value}} days ago",
+    "weekAgo": "{{value}} week ago",
+    "weeksAgo": "{{value}} weeks ago",
+    "monthAgo": "{{value}} month ago",
+    "monthsAgo": "{{value}} months ago",
+    "yearAgo": "{{value}} year ago",
+    "yearsAgo": "{{value}} years ago"
   }
 }

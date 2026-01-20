@@ -8,6 +8,7 @@ import {
 import {
   Folder as FolderIcon,
   CheckCircle as CheckCircleIcon,
+  Refresh as RefreshIcon,
 } from "@mui/icons-material";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -260,9 +261,23 @@ export default function Popup() {
           gap: 1,
         }}
       >
-        <CheckCircleIcon
-          sx={{ fontSize: 18, color: hasActiveTasks ? "primary.main" : "success.main" }}
-        />
+        {hasActiveTasks ? (
+          <RefreshIcon
+            sx={{
+              fontSize: 18,
+              color: "primary.main",
+              animation: "spin 1s linear infinite",
+              "@keyframes spin": {
+                "0%": { transform: "rotate(0deg)" },
+                "100%": { transform: "rotate(360deg)" },
+              },
+            }}
+          />
+        ) : (
+          <CheckCircleIcon
+            sx={{ fontSize: 18, color: "success.main" }}
+          />
+        )}
         <Typography variant="caption" color="text.secondary">
           {hasActiveTasks
             ? t("popup.syncingStatus", "Syncing {{count}} file(s)...", {

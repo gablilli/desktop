@@ -205,6 +205,14 @@ pub fn show_main_window(app: &AppHandle) {
     }
 }
 
+/// Show a file in the system file explorer (Windows Explorer, Finder, etc.)
+/// This will open the parent folder and select/highlight the file.
+#[tauri::command]
+pub async fn show_file_in_explorer(path: String) -> CommandResult<()> {
+    showfile::show_path_in_file_manager(&path);
+    Ok(())
+}
+
 /// Show or create the add-drive window
 pub fn show_add_drive_window(app: &AppHandle) {
     // Check if window already exists

@@ -37,6 +37,23 @@
     "syncing": "同步中",
     "recent": "最近",
     "syncingStatus": "正在同步 {{count}} 个文件...",
-    "upToDate": "文件已是最新"
+    "upToDate": "文件已是最新。",
+    "waiting": "等待中...",
+    "processing": "处理中..."
+  },
+  "timeAgo": {
+    "justNow": "刚刚",
+    "minuteAgo": "{{value}} 分钟前",
+    "minutesAgo": "{{value}} 分钟前",
+    "hourAgo": "{{value}} 小时前",
+    "hoursAgo": "{{value}} 小时前",
+    "dayAgo": "{{value}} 天前",
+    "daysAgo": "{{value}} 天前",
+    "weekAgo": "{{value}} 周前",
+    "weeksAgo": "{{value}} 周前",
+    "monthAgo": "{{value}} 个月前",
+    "monthsAgo": "{{value}} 个月前",
+    "yearAgo": "{{value}} 年前",
+    "yearsAgo": "{{value}} 年前"
   }
 }

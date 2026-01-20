@@ -469,7 +469,7 @@ impl TaskQueue {
                     &task.task_id,
                     TaskUpdate {
                         status: Some(TaskStatus::Failed),
-                        error: Some(Some(err.to_string())),
+                        error: Some(Some(format!("{:?}", err))),
                         ..Default::default()
                     },
                 ) {
