@@ -114,12 +114,8 @@ pub struct DriveInfo {
 pub enum DriveInfoStatus {
     /// Drive is active and synced
     Active,
-    /// Drive is currently syncing
-    Syncing,
-    /// Sync is paused
-    Paused,
-    /// There was an error
-    Error,
+    // Event push subscription is lost
+    EventPushLost,
     /// Credentials have expired
     CredentialExpired,
 }

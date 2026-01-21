@@ -128,9 +128,11 @@ impl Mount {
                         }
                     }
                     FileEvent::Resumed => {
+                        self.set_event_push_subscribed(true).await;
                         tracing::debug!(target: "drive::remote_events", "Subscription resumed");
                     }
                     FileEvent::Subscribed => {
+                        self.set_event_push_subscribed(true).await;
                         tracing::info!(target: "drive::remote_events", "New subscribtion, triggger full sync...");
                         let _ = self.command_tx.send(MountCommand::Sync {
                             local_paths: vec![sync_path.clone()],
@@ -142,13 +144,16 @@ impl Mount {
                     }
                     FileEvent::ReconnectRequired => {
                         tracing::debug!(target: "drive::remote_events", "Reconnect required");
+                        self.set_event_push_subscribed(false).await;
                         return ListenResult::ReconnectRequired;
                     }
                 },
                 Ok(None) => {
+                    self.set_event_push_subscribed(false).await;
                     return ListenResult::StreamEnded;
                 }
                 Err(e) => {
+                    self.set_event_push_subscribed(false).await;
                     return ListenResult::Error(e.into());
                 }
             }

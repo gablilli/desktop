@@ -56,9 +56,7 @@
     "deleteDrive": "Delete drive",
     "driveStatus": {
       "active": "Active",
-      "syncing": "Syncing",
-      "paused": "Paused",
-      "error": "Error",
+      "eventPushLost": "Real time event push lost",
       "credentialExpired": "Credential Expired"
     }
   },

@@ -92,3 +92,9 @@ profile:
 settings:
   en-US: "Settings"
   zh-CN: "设置"
+credentialExpiredTitle:
+  en-US: "Authorization Expired"
+  zh-CN: "授权已过期"
+credentialExpiredMessage:
+  en-US: "The authorization for drive \"%{drive}\" has expired. Please re-authorize to continue syncing."
+  zh-CN: "云盘 \"%{drive}\" 的授权已过期，请重新授权以继续同步。"

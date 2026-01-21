@@ -56,9 +56,7 @@
     "deleteDrive": "删除网盘",
     "driveStatus": {
       "active": "活跃",
-      "syncing": "同步中",
-      "paused": "已暂停",
-      "error": "错误",
+      "eventPushLost": "实时事件推送丢失",
       "credentialExpired": "凭证已过期"
     }
   },

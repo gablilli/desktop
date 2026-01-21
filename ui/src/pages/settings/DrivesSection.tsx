@@ -30,6 +30,7 @@ interface DriveInfoResponse {
   sync_path: string;
   icon_path?: string;
   raw_icon_path?: string;
+  remote_path: string;
   enabled: boolean;
   user_id: string;
   status: string;
@@ -108,11 +109,8 @@ export default function DrivesSection() {
     switch (status) {
       case "active":
         return "#4caf50"; // green
-      case "syncing":
-        return "#2196f3"; // blue
-      case "paused":
+      case "event_push_lost":
         return "#ff9800"; // orange
-      case "error":
       case "credential_expired":
         return "#f44336"; // red
       default:
@@ -129,12 +127,8 @@ export default function DrivesSection() {
     switch (status) {
       case "active":
         return t("settings.driveStatus.active");
-      case "syncing":
-        return t("settings.driveStatus.syncing");
-      case "paused":
-        return t("settings.driveStatus.paused");
-      case "error":
-        return t("settings.driveStatus.error");
+      case "event_push_lost":
+        return t("settings.driveStatus.eventPushLost");
       case "credential_expired":
         return t("settings.driveStatus.credentialExpired");
       default:

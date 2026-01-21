@@ -10,6 +10,7 @@ use crate::drive::ignore::IgnoreMatcher;
 use crate::drive::sync::group_fs_events;
 use crate::inventory::{DrivePropsUpdate, InventoryDb, TaskRecord};
 use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
+use crate::utils::toast;
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
 use cloudreve_api::api::user::UserApi;
@@ -62,12 +63,64 @@ pub struct Credentials {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MountStatus {
+pub enum MountSyncStatus {
     InSync,
     Syncing,
     Paused,
     Error,
     Warnning,
+}
+
+/// Bitflags for mount status flags
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MountStatusFlags(u8);
+
+impl MountStatusFlags {
+    const CREDENTIAL_EXPIRED: u8 = 1 << 0;
+    const EVENT_PUSH_SUBSCRIBED: u8 = 1 << 1;
+
+    /// Create a new MountStatusFlags with all flags cleared
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    /// Check if credentials have expired
+    pub fn is_credential_expired(&self) -> bool {
+        self.0 & Self::CREDENTIAL_EXPIRED != 0
+    }
+
+    /// Set the credential expired flag
+    pub fn set_credential_expired(&mut self, expired: bool) {
+        if expired {
+            self.0 |= Self::CREDENTIAL_EXPIRED;
+        } else {
+            self.0 &= !Self::CREDENTIAL_EXPIRED;
+        }
+    }
+
+    /// Check if event push is subscribed
+    pub fn is_event_push_subscribed(&self) -> bool {
+        self.0 & Self::EVENT_PUSH_SUBSCRIBED != 0
+    }
+
+    /// Set the event push subscribed flag
+    pub fn set_event_push_subscribed(&mut self, subscribed: bool) {
+        if subscribed {
+            self.0 |= Self::EVENT_PUSH_SUBSCRIBED;
+        } else {
+            self.0 &= !Self::EVENT_PUSH_SUBSCRIBED;
+        }
+    }
+
+    /// Get the raw bits value
+    pub fn bits(&self) -> u8 {
+        self.0
+    }
+
+    /// Create from raw bits
+    pub fn from_bits(bits: u8) -> Self {
+        Self(bits)
+    }
 }
 
 type FsWatcher = Debouncer<RecommendedWatcher, RecommendedCache>;
@@ -80,7 +133,6 @@ pub struct Mount {
     processor_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     props_refresh_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
     remote_event_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
-    status: Arc<RwLock<MountStatus>>,
     manager_command_tx: mpsc::UnboundedSender<ManagerCommand>,
     fs_watcher: Mutex<Option<FsWatcher>>,
     pub(crate) sync_lock: Mutex<()>,
@@ -91,6 +143,8 @@ pub struct Mount {
     pub event_blocker: EventBlocker,
     /// Compiled glob matcher for ignore patterns
     pub ignore_matcher: IgnoreMatcher,
+    /// Status flags for the mount (credential expired, event push subscribed, etc.)
+    status_flags: Mutex<MountStatusFlags>,
 }
 
 impl Mount {
@@ -131,6 +185,17 @@ impl Mount {
                         tracing::error!(target: "drive::mounts", error = %e, "Failed to send RefreshCredentials command");
                     }
                 })
+        }));
+
+        // Setup hook for credential invalid events (401, 40020, 40089)
+        let command_tx_invalid = command_tx.clone();
+        cr_client.set_on_credential_invalid(Arc::new(move || {
+            let command_tx = command_tx_invalid.clone();
+            Box::pin(async move {
+                if let Err(e) = command_tx.send(MountCommand::CredentialInvalid) {
+                    tracing::error!(target: "drive::mounts", error = %e, "Failed to send CredentialInvalid command");
+                }
+            })
         }));
 
         let cr_client_arc = Arc::new(cr_client);
@@ -182,13 +247,13 @@ impl Mount {
             cr_client: cr_client_arc,
             inventory,
             task_queue,
-            status: Arc::new(RwLock::new(MountStatus::InSync)),
             id,
             manager_command_tx,
             fs_watcher: Mutex::new(None),
             sync_lock: Mutex::new(()),
             event_blocker: EventBlocker::new(),
             ignore_matcher,
+            status_flags: Mutex::new(MountStatusFlags::new()),
         }
     }
 
@@ -232,6 +297,42 @@ impl Mount {
     /// `true` if the filename matches any ignore pattern, `false` otherwise
     pub fn is_ignored_filename(&self, filename: &str) -> bool {
         self.ignore_matcher.is_match_filename(filename)
+    }
+
+    /// Get a copy of the current status flags
+    pub async fn get_status_flags(&self) -> MountStatusFlags {
+        *self.status_flags.lock().await
+    }
+
+    /// Set the credential expired flag.
+    /// If the flag changes from false to true, sends a toast notification to remind user to re-authorize.
+    pub async fn set_credential_expired(&self, expired: bool) {
+        let should_notify = {
+            let mut flags = self.status_flags.lock().await;
+            let was_expired = flags.is_credential_expired();
+            let notify = expired && !was_expired;
+            flags.set_credential_expired(expired);
+            notify
+        };
+
+        // Send toast outside of the lock to avoid potential deadlocks
+        if should_notify {
+            let config = self.config.read().await;
+            let drive_name = config.name.clone();
+            let drive_id = config.id.clone();
+            drop(config);
+
+            toast::send_token_expiry_toast(
+                &drive_id,
+                &t!("credentialExpiredTitle"),
+                &t!("credentialExpiredMessage", "drive" => drive_name),
+            );
+        }
+    }
+
+    /// Set the event push subscribed flag
+    pub async fn set_event_push_subscribed(&self, subscribed: bool) {
+        self.status_flags.lock().await.set_event_push_subscribed(subscribed);
     }
 
     pub fn task_queue(&self) -> Arc<TaskQueue> {
@@ -429,12 +530,19 @@ impl Mount {
                     config.credentials.refresh_expires = credentials.refresh_expires;
                     config.credentials.access_expires = Some(credentials.access_expires);
 
+                    // Clear credential expired flag since we got new credentials
+                    s.set_credential_expired(false).await;
+
                     // Notify manager to persist config
                     let command = ManagerCommand::PersistConfig;
                     if let Err(e) = s.manager_command_tx.send(command) {
                         tracing::error!(target: "drive::mounts", id = %mount_id, error = %e, "Failed to send PersistConfig command");
                     }
                     drop(config);
+                }
+                MountCommand::CredentialInvalid => {
+                    tracing::warn!(target: "drive::mounts", id = %mount_id, "Credential invalid, marking as expired");
+                    s.set_credential_expired(true).await;
                 }
                 MountCommand::FetchData {
                     path,
@@ -484,10 +592,6 @@ impl Mount {
     async fn handle_fetch_placeholders(path: PathBuf) -> Result<()> {
         tracing::debug!(target: "drive::mounts", path = %path.display(), "FetchPlaceholders");
         Ok(())
-    }
-
-    async fn get_status(&self) -> MountStatus {
-        self.status.read().await.clone()
     }
 
     pub async fn shutdown(&self) {

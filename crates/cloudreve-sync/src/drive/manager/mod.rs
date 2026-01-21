@@ -1,4 +1,5 @@
 mod command_handlers;
+pub(crate) mod favicon;
 mod types;
 
 pub use types::*;
@@ -151,7 +152,7 @@ impl DriveManager {
                 .map(|p| std::path::Path::new(p).exists())
                 .unwrap_or(false)
         {
-            match crate::drive::favicon::fetch_and_save_favicon(&config.instance_url).await {
+            match favicon::fetch_and_save_favicon(&config.instance_url).await {
                 Ok(result) => {
                     tracing::info!(target: "drive", ico_path = %result.ico_path, raw_path = %result.raw_path, "Favicon fetched successfully");
                     config.icon_path = Some(result.ico_path);
@@ -431,27 +432,16 @@ impl DriveManager {
             let config = mount.get_config().await;
             let drive_id = &config.id;
 
-            // Check if credentials are expired
-            let credentials_expired = {
-                use chrono::{DateTime, Utc};
-                let now = Utc::now();
-
-                // Parse refresh_expires as RFC3339 timestamp
-                match DateTime::parse_from_rfc3339(&config.credentials.refresh_expires) {
-                    Ok(expires) => expires < now,
-                    Err(_) => false, // If parsing fails, assume not expired
-                }
-            };
-
             let capacity = Self::get_capacity_summary(mount, drive_id, &config.remote_path);
 
+            let drive_state = mount.get_status_flags().await;
+
             // Determine drive status
-            let status = if credentials_expired {
+            let status = if drive_state.is_credential_expired() {
                 DriveInfoStatus::CredentialExpired
             } else {
-                let active_task_count = self.get_active_task_count(drive_id);
-                if active_task_count > 0 {
-                    DriveInfoStatus::Syncing
+                if !drive_state.is_event_push_subscribed(){
+                    DriveInfoStatus::EventPushLost
                 } else {
                     DriveInfoStatus::Active
                 }

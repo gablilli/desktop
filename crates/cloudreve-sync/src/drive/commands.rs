@@ -95,7 +95,7 @@ pub struct GetPlacehodlerResult {
 
 /// Messages sent from OS threads (SyncFilter callbacks) to the async processing task
 ///
-/// # Safety    
+/// # Safety
 /// This is safe because Windows CFAPI callbacks are designed to be invoked from arbitrary threads
 /// and the data contained in Request, ticket, and info types are meant to be passed between threads
 /// during the callback's lifetime.
@@ -108,6 +108,8 @@ pub enum MountCommand {
     RefreshCredentials {
         credentials: Token,
     },
+    /// Credential has become invalid (401, 40020, 40089 errors)
+    CredentialInvalid,
     FetchData {
         path: PathBuf,
         ticket: ticket::FetchData,

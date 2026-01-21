@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE};
+use chrono::format;
 use win32_notif::{
     NotificationBuilder, ToastsNotifier,
     notification::{
@@ -28,6 +29,30 @@ pub fn send_general_text_toast(title: &str, message: &str) {
                 .with_style(HintStyle::Body),
         )
         .build(0, &notifier, "01", "readme")
+        .unwrap();
+
+    notif.show().unwrap();
+}
+
+/// Send a toast notification for token expiry.
+/// Uses drive_id as the tag to prevent duplicate notifications for the same drive.
+pub fn send_token_expiry_toast(drive_id: &str, title: &str, message: &str) {
+    let notifier = ToastsNotifier::new(APP_NAME).unwrap();
+
+    let notif = NotificationBuilder::new()
+        .visual(
+            Text::create(1, title)
+                .with_align_center(true)
+                .with_wrap(true)
+                .with_style(HintStyle::Title),
+        )
+        .visual(
+            Text::create(2, message)
+                .with_align_center(true)
+                .with_wrap(true)
+                .with_style(HintStyle::Body),
+        )
+        .build(0, &notifier, &format!("token_expiry_{}", drive_id), "token_expiry")
         .unwrap();
 
     notif.show().unwrap();
@@ -71,7 +96,7 @@ pub fn send_conflict_toast(drive_id: &str, path: &PathBuf, inventory_id: i64) {
             ),
             Box::new(ActionButton::create(t!("dismiss").as_ref()).with_id("action=dismiss")),
         ])
-        .build(0, &notifier, "01", "readme")
+        .build(0, &notifier, &format!("conflict_{}", inventory_id), "readme")
         .unwrap();
 
     notif.show().unwrap();

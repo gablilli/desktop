@@ -12,7 +12,7 @@ export interface DriveInfo {
   capacity?: CapacitySummary;
 }
 
-export type DriveStatus = "active" | "syncing" | "paused" | "error" | "credential_expired";
+export type DriveStatus = "active" | "event_push_lost" | "credential_expired";
 
 export interface CapacitySummary {
   total: number;
