@@ -332,7 +332,10 @@ impl Mount {
 
     /// Set the event push subscribed flag
     pub async fn set_event_push_subscribed(&self, subscribed: bool) {
-        self.status_flags.lock().await.set_event_push_subscribed(subscribed);
+        self.status_flags
+            .lock()
+            .await
+            .set_event_push_subscribed(subscribed);
     }
 
     pub fn task_queue(&self) -> Arc<TaskQueue> {
@@ -594,6 +597,25 @@ impl Mount {
         Ok(())
     }
 
+    pub async fn delete(&self) -> Result<()> {
+        self.shutdown().await;
+        if let Some(ref connection) = self.connection {
+            connection.disconnect().context("faield to disconnect sync root")?;
+        }
+        self.task_queue.shutdown().await;
+        if let Some(sync_root_id) = self.config.read().await.sync_root_id.as_ref() {
+            if let Err(e) = sync_root_id.unregister() {
+                tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to unregister sync root");
+                return Err(anyhow::anyhow!("Failed to unregister sync root: {}", e));
+            }
+        }
+        if let Err(e) = self.inventory.nuke_drive(&self.id) {
+            tracing::error!(target: "drive::mounts", id=%self.id, error=%e, "Failed to nuke drive");
+        }
+
+        Ok(())
+    }
+
     pub async fn shutdown(&self) {
         tracing::info!(target: "drive::mounts", id=%self.id, "Shutting down Mount");
 
@@ -622,21 +644,7 @@ impl Mount {
             tracing::debug!(target: "drive::mounts", id=%self.id, "Stopping props refresh task");
             handle.abort();
         }
-
-        if let Some(ref connection) = self.connection {
-            connection.disconnect();
-        }
-        self.task_queue.shutdown().await;
-        if let Some(sync_root_id) = self.config.read().await.sync_root_id.as_ref() {
-            if let Err(e) = sync_root_id.unregister() {
-                tracing::warn!(target: "drive::mounts", id=%self.id, error=%e, "Failed to unregister sync root");
-            }
-        }
         // self.queue.shutdown().await;
-
-        if let Err(e) = self.inventory.nuke_drive(&self.id) {
-            tracing::error!(target: "drive::mounts", id=%self.id, error=%e, "Failed to nuke drive");
-        }
     }
 
     /// Spawn the periodic props refresh task

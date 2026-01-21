@@ -128,9 +128,14 @@ impl CrPlaceholder {
                 let primary_entity = OsString::from(file_meta.etag.clone());
                 let blob = primary_entity.into_encoded_bytes();
                 // Upgrade to placeholder
-                let mut local_handle = OpenOptions::new()
-                    .open_win32(&self.local_path)
-                    .context("failed to open local file")?;
+                let mut local_handle = match self.local_file_info.is_directory {
+                    true => OpenOptions::new()
+                        .open(&self.local_path)
+                        .context("failed to open local directory")?,
+                    false => OpenOptions::new()
+                        .open_win32(&self.local_path)
+                        .context("failed to open local file")?,
+                };
                 tracing::info!(
                     target: "drive::placeholder",
                     local_path = %self.local_path.display(),
@@ -162,9 +167,14 @@ impl CrPlaceholder {
                     .open(&self.local_path)
                     .context("failed to open local placeholder for dehydration")?
             } else {
-                OpenOptions::new()
-                    .open_win32(&self.local_path)
-                    .context("failed to open local placeholder")?
+                match self.local_file_info.is_directory {
+                    true => OpenOptions::new()
+                        .open(&self.local_path)
+                        .context("failed to open local placeholder directory")?,
+                    false => OpenOptions::new()
+                        .open_win32(&self.local_path)
+                        .context("failed to open local placeholder file")?,
+                }
             };
             if dehydrate_requested {
                 tracing::debug!(target: "drive::placeholder", local_path = %self.local_path.display(), "Invalidating all range");

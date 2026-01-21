@@ -131,11 +131,21 @@ pub async fn remove_drive(
     let app_state = state
         .get()
         .ok_or_else(|| "App not yet initialized".to_string())?;
-    app_state
+
+    let result = app_state
         .drive_manager
         .remove_drive(&drive_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Persist drive configurations after removal
+    app_state
+        .drive_manager
+        .persist()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
 }
 
 /// Get sync status for a drive

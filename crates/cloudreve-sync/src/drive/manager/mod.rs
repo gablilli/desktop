@@ -172,7 +172,7 @@ impl DriveManager {
         )
         .await;
         if let Err(e) = mount.start().await {
-            tracing::error!(target: "drive", error = %e, "Failed to start drive");
+            tracing::error!(target: "drive", error = ?e, "Failed to start drive");
             return Err(e).context("Failed to start drive");
         }
 
@@ -222,10 +222,38 @@ impl DriveManager {
     }
 
     /// Remove a drive by ID
-    pub async fn remove_drive(&self, _id: &str) -> Result<Option<DriveConfig>> {
-        // let mut write_guard = self.drives.write().await;
-        // Ok(write_guard.remove(id).map(async|mount| mount.get_config().await))
-        Err(anyhow::anyhow!("Not implemented"))
+    ///
+    /// This will:
+    /// 1. Stop and delete the mount (unregister sync root, cleanup inventory)
+    /// 2. Remove the drive from the manager's drive map
+    ///
+    /// Note: The caller is responsible for calling `persist()` after this to save the config.
+    pub async fn remove_drive(&self, id: &str) -> Result<Option<DriveConfig>> {
+        let mut write_guard = self.drives.write().await;
+
+        // Remove the mount from the map
+        let mount = match write_guard.remove(id) {
+            Some(m) => m,
+            None => return Ok(None),
+        };
+
+        // Get the config before deleting the mount
+        let config = mount.get_config().await;
+
+        // Drop the write guard before calling delete to avoid potential deadlocks
+        drop(write_guard);
+
+        // Delete the mount (unregister sync root, cleanup, etc.)
+        mount.delete().await.context("Failed to delete mount")?;
+
+        // Broadcast no_drive event if no drives remain
+        if self.drives.read().await.is_empty() {
+            self.event_broadcaster.no_drive();
+        }
+
+        tracing::info!(target: "drive::manager", drive_id = %id, "Drive removed successfully");
+
+        Ok(Some(config))
     }
 
     /// Get a drive by ID

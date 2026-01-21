@@ -31,11 +31,7 @@ use windows::{
                 CfUpdatePlaceholder,
             },
             FileSystem::{
-                CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_PINNED,
-                FILE_ATTRIBUTE_UNPINNED, FILE_FLAGS_AND_ATTRIBUTES, FILE_READ_DATA,
-                FILE_SHARE_MODE, FIND_FIRST_EX_FLAGS, FindClose, FindExInfoBasic,
-                FindExInfoStandard, FindExSearchNameMatch, FindFirstFileA, FindFirstFileExA,
-                FindFirstFileExW, OPEN_EXISTING, WIN32_FIND_DATAA, WIN32_FIND_DATAW,
+                CreateFileW, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_UNPINNED, FILE_FLAGS_AND_ATTRIBUTES, FILE_READ_ATTRIBUTES, FILE_READ_DATA, FILE_SHARE_MODE, FILE_SHARE_READ, FIND_FIRST_EX_FLAGS, FindClose, FindExInfoBasic, FindExInfoStandard, FindExSearchNameMatch, FindFirstFileA, FindFirstFileExA, FindFirstFileExW, OPEN_EXISTING, WIN32_FIND_DATAA, WIN32_FIND_DATAW
             },
         },
     },
@@ -230,7 +226,7 @@ impl Default for OpenOptions {
     fn default() -> Self {
         Self {
             flags: CloudFilters::CF_OPEN_FILE_FLAG_NONE,
-            share_mode: FILE_SHARE_MODE(FILE_READ_DATA.0),
+            share_mode: FILE_SHARE_MODE(FILE_SHARE_READ.0),
         }
     }
 }

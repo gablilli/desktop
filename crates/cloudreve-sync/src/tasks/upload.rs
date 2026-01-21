@@ -422,7 +422,8 @@ impl<'a> UploadTask<'a> {
         self.local_file
             .as_mut()
             .unwrap()
-            .commit(self.inventory.clone())?;
+            .commit(self.inventory.clone())
+            .context("failed to commit placeholder")?;
 
         self.local_file
             .as_mut()

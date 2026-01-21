@@ -3,7 +3,7 @@ use std::{
     thread::{self},
     time::Duration,
 };
-
+use anyhow::Result;
 use windows::Win32::Storage::CloudFilters::{CF_CONNECTION_KEY, CfDisconnectSyncRoot};
 
 use crate::cfapi::filter::{Callbacks, RawConnectionKey};
@@ -46,7 +46,8 @@ impl<T> Connection<T> {
         &self.filter
     }
 
-    pub fn disconnect(&self) {
-        unsafe { CfDisconnectSyncRoot(CF_CONNECTION_KEY(self.connection_key)) }.unwrap();
+    pub fn disconnect(&self) -> Result<()> {
+        unsafe { CfDisconnectSyncRoot(CF_CONNECTION_KEY(self.connection_key)) }?;
+        Ok(())
     }
 }
