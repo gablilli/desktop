@@ -47,6 +47,10 @@
         }
       ]
     },
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "dialog:allow-ask",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled"
   ]
 }

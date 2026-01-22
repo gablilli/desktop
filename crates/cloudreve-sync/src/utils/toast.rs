@@ -10,6 +10,7 @@ use win32_notif::{
     },
 };
 
+use crate::config::ConfigManager;
 use crate::utils::app::get_app_root;
 
 const APP_NAME: &str = "Cloudreve.Sync";
@@ -38,7 +39,16 @@ pub fn send_general_text_toast(title: &str, message: &str) {
 
 /// Send a toast notification for token expiry.
 /// Uses drive_id as the tag to prevent duplicate notifications for the same drive.
+/// Respects the notify_credential_expired config setting.
 pub fn send_token_expiry_toast(drive_id: &str, title: &str, message: &str) {
+    // Check if credential expired notifications are enabled
+    if let Some(config) = ConfigManager::try_get() {
+        if !config.notify_credential_expired() {
+            tracing::debug!(target: "toast", "Token expiry notification suppressed by config");
+            return;
+        }
+    }
+
     let notifier = ToastsNotifier::new(APP_NAME).unwrap();
     let app_root = get_app_root();
 
@@ -66,7 +76,17 @@ pub fn send_token_expiry_toast(drive_id: &str, title: &str, message: &str) {
     notif.show().unwrap();
 }
 
+/// Send a toast notification for file conflicts.
+/// Respects the notify_file_conflict config setting.
 pub fn send_conflict_toast(drive_id: &str, path: &PathBuf, inventory_id: i64) {
+    // Check if file conflict notifications are enabled
+    if let Some(config) = ConfigManager::try_get() {
+        if !config.notify_file_conflict() {
+            tracing::debug!(target: "toast", "Conflict notification suppressed by config");
+            return;
+        }
+    }
+
     let notifier = ToastsNotifier::new(APP_NAME).unwrap();
 
     let notif = NotificationBuilder::new()

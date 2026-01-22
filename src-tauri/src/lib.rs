@@ -1,5 +1,6 @@
 use anyhow::Context;
-use cloudreve_sync::{DriveManager, EventBroadcaster, LogConfig, LogGuard, shellext::shell_service::ServiceHandle};
+use cloudreve_sync::{ConfigManager, DriveManager, EventBroadcaster, LogConfig, LogGuard, shellext::shell_service::ServiceHandle};
+use tauri_plugin_autostart::ManagerExt;
 use std::sync::{Arc, Mutex};
 use tauri::{
     async_runtime::spawn,
@@ -48,8 +49,8 @@ async fn init_sync_service(app: AppHandle) -> anyhow::Result<()> {
     // Initialize app root (Windows Package detection)
     cloudreve_sync::init_app_root();
 
-    // Initialize logging system
-    let log_guard = cloudreve_sync::logging::init_logging(LogConfig::default())
+    // Initialize logging system with config from ConfigManager
+    let log_guard = cloudreve_sync::logging::init_logging(LogConfig::from_config_manager())
         .context("Failed to initialize logging system")?;
 
     tracing::info!(target: "main", "Starting Cloudreve Sync Service (Tauri)...");
@@ -236,6 +237,7 @@ pub fn run() {
         .plugin(tauri_plugin_frame::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_prevent_default::debug())
         .setup(|app| {
             #[cfg(desktop)]
             let _ = app.handle().plugin(tauri_plugin_positioner::init());
@@ -245,6 +247,8 @@ pub fn run() {
 
             #[cfg(desktop)]
             app.deep_link().register("cloudreve")?;
+
+            ConfigManager::init()?;
 
             // Spawn async setup task - this runs in the background
             // while the app continues to start
@@ -258,6 +262,14 @@ pub fn run() {
             // close default main window
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.destroy();
+            }
+
+            // Auto start manager
+            let _ = app.handle().plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
+            let autostart_manager = app.autolaunch();
+            // Enable autostart
+            if ConfigManager::get().auto_start(){
+                let _ = autostart_manager.enable();
             }
 
             Ok(())
@@ -274,6 +286,15 @@ pub fn run() {
             commands::show_add_drive_window,
             commands::show_reauthorize_window,
             commands::show_settings_window,
+            commands::set_auto_start,
+            commands::set_notify_credential_expired,
+            commands::set_notify_file_conflict,
+            commands::set_fast_popup_launch,
+            commands::get_general_settings,
+            commands::set_log_to_file,
+            commands::set_log_level,
+            commands::set_log_max_files,
+            commands::open_log_folder,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

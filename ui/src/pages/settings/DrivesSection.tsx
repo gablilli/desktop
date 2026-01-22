@@ -4,15 +4,12 @@ import {
   CardContent,
   Typography,
   LinearProgress,
-  Button,
   Stack,
   Tooltip,
   Link,
   Divider,
 } from "@mui/material";
 import {
-  Delete as DeleteIcon,
-  Refresh as RefreshIcon,
   FolderOpen as FolderOpenIcon,
   LanguageRounded,
   FolderOpenRounded,
@@ -26,7 +23,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { DriveInfo } from "./types";
-import { DefaultButton, SecondaryButton, SecondaryErrorButton } from "../../common/StyledComponent";
+import {  SecondaryButton, SecondaryErrorButton } from "../../common/StyledComponent";
+import { ask } from '@tauri-apps/plugin-dialog';
 
 interface DriveInfoResponse {
   id: string;
@@ -76,7 +74,14 @@ export default function DrivesSection() {
     fetchDrives();
   }, [fetchDrives]);
 
-  const handleDelete = async (driveId: string) => {
+  const handleDelete = async (driveId: string, driveName: string) => {
+    const confirmed = await ask(t("settings.deleteDriveConfirm", { name: driveName }), {
+      title: t("settings.deleteDrive"),
+      kind: "warning",
+    });
+
+    if (!confirmed) return;
+
     try {
       await invoke("remove_drive", { driveId });
       await fetchDrives();
@@ -155,12 +160,6 @@ export default function DrivesSection() {
   if (loading) {
     return (
       <Box>
-        <Typography variant="h5" fontWeight={500} gutterBottom>
-          {t("settings.drives")}
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          {t("settings.loading")}
-        </Typography>
       </Box>
     );
   }
@@ -366,7 +365,7 @@ export default function DrivesSection() {
                     size="small"
                     color="error"
                     startIcon={<DeleteOutlineRounded />}
-                    onClick={() => handleDelete(drive.id)}
+                    onClick={() => handleDelete(drive.id, drive.name)}
                   >
                     {t("settings.deleteDrive")}
                   </SecondaryErrorButton>

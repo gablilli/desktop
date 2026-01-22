@@ -1,7 +1,7 @@
 use crate::AppStateHandle;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{Duration, Utc};
-use cloudreve_sync::{Credentials, DriveConfig, DriveInfo, StatusSummary};
+use cloudreve_sync::{ConfigManager, Credentials, DriveConfig, DriveInfo, StatusSummary, config::LogLevel};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{
@@ -9,6 +9,7 @@ use tauri::{
     webview::WebviewWindowBuilder,
     AppHandle, Manager, State, WebviewUrl,
 };
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_frame::WebviewWindowExt;
 use tauri_plugin_positioner::{WindowExt, Position};
 use uuid::Uuid;
@@ -241,6 +242,7 @@ pub fn show_main_window_center(app: &AppHandle) {
 fn show_main_window_at_position(app: &AppHandle, position: Position) {
     // Check if window already exists
     if let Some(window) = app.get_webview_window("main_popup") {
+        let _ = window.move_window(position);
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -259,6 +261,19 @@ fn show_main_window_at_position(app: &AppHandle, position: Position) {
         .build()
     {
         Ok(window) => {
+            // Set up close request handler for fast popup launch
+            let window_clone = window.clone();
+            window.on_window_event(move |event| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    // Check if fast popup launch is enabled
+                    if ConfigManager::get().fast_popup_launch() {
+                        // Prevent default close behavior and hide window instead
+                        api.prevent_close();
+                        let _ = window_clone.hide();
+                    }
+                }
+            });
+
             let _ = window.move_window(position);
             let _ = window.show();
             let _ = window.set_focus();
@@ -403,4 +418,114 @@ pub fn show_settings_window_impl(app: &AppHandle) {
             tracing::error!(target: "main", error = %e, "Failed to create settings window");
         }
     }
+}
+
+/// Set auto-start configuration and persist to config file
+#[tauri::command]
+pub async fn set_auto_start(app: AppHandle, enabled: bool) -> CommandResult<()> {
+    // Update the config manager
+    ConfigManager::get()
+        .set_auto_start(enabled)
+        .map_err(|e| e.to_string())?;
+
+    // Also update the OS autostart setting
+    let autostart_manager = app.autolaunch();
+    if enabled {
+        autostart_manager.enable().map_err(|e| e.to_string())?;
+    } else {
+        autostart_manager.disable().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+/// Set notification settings for credential expiry
+#[tauri::command]
+pub async fn set_notify_credential_expired(enabled: bool) -> CommandResult<()> {
+    ConfigManager::get()
+        .set_notify_credential_expired(enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Set notification settings for file conflicts
+#[tauri::command]
+pub async fn set_notify_file_conflict(enabled: bool) -> CommandResult<()> {
+    ConfigManager::get()
+        .set_notify_file_conflict(enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Set fast popup launch setting
+#[tauri::command]
+pub async fn set_fast_popup_launch(enabled: bool) -> CommandResult<()> {
+    ConfigManager::get()
+        .set_fast_popup_launch(enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Get all general settings
+#[tauri::command]
+pub async fn get_general_settings() -> CommandResult<GeneralSettings> {
+    let config = ConfigManager::get().get_config();
+    Ok(GeneralSettings {
+        notify_credential_expired: config.notify_credential_expired,
+        notify_file_conflict: config.notify_file_conflict,
+        fast_popup_launch: config.fast_popup_launch,
+        log_to_file: config.log_to_file,
+        log_level: config.log_level.as_str().to_string(),
+        log_max_files: config.log_max_files,
+        log_dir: ConfigManager::get_log_dir().display().to_string(),
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct GeneralSettings {
+    pub notify_credential_expired: bool,
+    pub notify_file_conflict: bool,
+    pub fast_popup_launch: bool,
+    pub log_to_file: bool,
+    pub log_level: String,
+    pub log_max_files: usize,
+    pub log_dir: String,
+}
+
+/// Set log to file setting
+#[tauri::command]
+pub async fn set_log_to_file(enabled: bool) -> CommandResult<()> {
+    ConfigManager::get()
+        .set_log_to_file(enabled)
+        .map_err(|e| e.to_string())
+}
+
+/// Set log level setting
+#[tauri::command]
+pub async fn set_log_level(level: String) -> CommandResult<()> {
+    let log_level = LogLevel::from_str(&level);
+
+    // Update config (requires restart to take effect)
+    ConfigManager::get()
+        .set_log_level(log_level)
+        .map_err(|e| e.to_string())
+}
+
+/// Set max log files setting
+#[tauri::command]
+pub async fn set_log_max_files(max_files: usize) -> CommandResult<()> {
+    ConfigManager::get()
+        .set_log_max_files(max_files)
+        .map_err(|e| e.to_string())
+}
+
+/// Open the log folder in file explorer
+#[tauri::command]
+pub async fn open_log_folder() -> CommandResult<()> {
+    let log_dir = ConfigManager::get_log_dir();
+
+    // Create the directory if it doesn't exist
+    if !log_dir.exists() {
+        std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
+    }
+
+    showfile::show_path_in_file_manager(log_dir);
+    Ok(())
 }
