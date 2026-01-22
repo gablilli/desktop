@@ -29,6 +29,7 @@ pub enum StatusUIAction {
 
 #[implement(IStorageProviderUICommand)]
 pub struct SyncStatusUICommand {
+     #[allow(dead_code)]
     app_root: AppRoot,
     label: HSTRING,
     description: HSTRING,
@@ -155,7 +156,7 @@ impl IStorageProviderStatusUISource_Impl for StatusUIHandler_Impl {
         let drive_status = self.get_drive_status();
 
         // Set provider state based on sync status
-        let (provider_state, state_label, sync_icon, sync_label, sync_description) = match &drive_status {
+        let (provider_state, _state_label, sync_icon, sync_label, sync_description) = match &drive_status {
             Some(status) => {
                 match status.sync_status {
                     SyncStatus::Syncing => (
@@ -286,7 +287,7 @@ impl IStorageProviderStatusUISource_Impl for StatusUIHandler_Impl {
         >,
     ) -> windows_core::Result<EventRegistrationToken> {
         if let Some(handler) = handler {
-            let source: IStorageProviderStatusUISource = unsafe { self.this.cast()? };
+            let _source: IStorageProviderStatusUISource = unsafe { self.this.cast()? };
             let handler = UIEvent(handler.clone());
 
             let _ = self.drive_manager.register_on_status_ui_changed(move || {

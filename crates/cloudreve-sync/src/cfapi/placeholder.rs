@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use std::{
     fmt::Debug,
     fs::File,

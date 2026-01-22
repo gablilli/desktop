@@ -568,9 +568,9 @@ impl Mount {
                 }
                 MountCommand::ProcessFsEvents { events } => {
                     let s_clone = s.clone();
-                    let mount_id_clone = mount_id.clone();
+                    //let mount_id_clone = mount_id.clone();
                     spawn(async move {
-                        s_clone.process_fs_events(events).await;
+                        let _ = s_clone.process_fs_events(events).await;
                     });
                 }
                 MountCommand::Renamed {
@@ -590,11 +590,6 @@ impl Mount {
         }
 
         tracing::info!(target: "drive::mounts", id = %mount_id, "Command processor stopped");
-    }
-
-    async fn handle_fetch_placeholders(path: PathBuf) -> Result<()> {
-        tracing::debug!(target: "drive::mounts", path = %path.display(), "FetchPlaceholders");
-        Ok(())
     }
 
     pub async fn delete(&self) -> Result<()> {
@@ -735,7 +730,7 @@ impl Mount {
 
 fn generate_sync_root_id(
     instance_url: &str,
-    account_name: &str,
+    _account_name: &str,
     user_id: &str,
     sync_path: &PathBuf,
 ) -> Result<SyncRootId> {

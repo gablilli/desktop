@@ -100,11 +100,14 @@ pub(crate) struct UploadSessionQueryRow {
     pub local_path: String,
     pub remote_uri: String,
     pub file_size: i64,
+    #[allow(dead_code)]
     pub chunk_size: i64,
+     #[allow(dead_code)]
     pub policy_type: String,
     pub session_data: String,
     pub chunk_progress: String,
     pub encrypt_metadata: Option<String>,
+     #[allow(dead_code)]
     pub expires_at: i64,
     pub created_at: i64,
     pub updated_at: i64,

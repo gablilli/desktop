@@ -74,6 +74,7 @@ pub fn init_and_start_service_task(drive_manager: Arc<DriveManager>) -> ServiceH
 }
 
 pub struct ServiceHandle {
+     #[allow(dead_code)]
     thread: Option<thread::JoinHandle<()>>,
     init_result: mpsc::Receiver<windows::core::Result<()>>,
 }

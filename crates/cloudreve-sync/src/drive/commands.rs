@@ -302,7 +302,7 @@ impl Mount {
             })?;
 
             bytes_transferred += accumulator.len() as u64;
-            current_offset += accumulator.len() as u64;
+            // current_offset += accumulator.len() as u64;
 
             // Final progress report
             ticket
@@ -800,8 +800,8 @@ impl Mount {
     async fn process_fs_modify_events(
         &self,
         path_uri_mappings: HashMap<String, PathBuf>,
-        sync_path: PathBuf,
-        remote_base: String,
+        _sync_path: PathBuf,
+        _remote_base: String,
     ) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",
@@ -881,8 +881,8 @@ impl Mount {
     async fn process_fs_create_events(
         &self,
         path_uri_mappings: HashMap<String, PathBuf>,
-        sync_path: PathBuf,
-        remote_base: String,
+        _sync_path: PathBuf,
+        _remote_base: String,
     ) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",
@@ -891,7 +891,7 @@ impl Mount {
             "Processing filesystem create events"
         );
 
-        for (remote_uri, path) in path_uri_mappings {
+        for (_remote_uri, path) in path_uri_mappings {
             let payload = TaskPayload::upload(path.clone());
 
             self.task_queue
@@ -914,8 +914,8 @@ impl Mount {
     async fn process_fs_delete_events(
         &self,
         path_uri_mappings: HashMap<String, PathBuf>,
-        sync_path: PathBuf,
-        remote_base: String,
+        _sync_path: PathBuf,
+        _remote_base: String,
     ) -> Result<()> {
         tracing::debug!(
             target: "drive::commands",

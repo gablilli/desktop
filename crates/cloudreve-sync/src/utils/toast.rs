@@ -49,7 +49,6 @@ pub fn send_token_expiry_toast(drive_id: &str, title: &str, message: &str) {
     }
 
     let notifier = ToastsNotifier::new(APP_NAME).unwrap();
-    let app_root = get_app_root();
 
     let notif = NotificationBuilder::new()
         .visual(

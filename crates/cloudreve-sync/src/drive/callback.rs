@@ -18,7 +18,6 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct CallbackHandler {
-    config: DriveConfig,
     command_tx: mpsc::UnboundedSender<MountCommand>,
     id: String,
     inventory: Arc<InventoryDb>,
@@ -32,7 +31,6 @@ impl CallbackHandler {
         inventory: Arc<InventoryDb>,
     ) -> Self {
         Self {
-            config,
             command_tx,
             id: id,
             inventory: inventory,
@@ -73,7 +71,7 @@ impl SyncFilter for CallbackHandler {
         tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), "Deleted");
     }
 
-    fn delete(&self, request: Request, ticket: ticket::Delete, info: info::Delete) -> CResult<()> {
+    fn delete(&self, request: Request, ticket: ticket::Delete, _info: info::Delete) -> CResult<()> {
         tracing::debug!(target: "drive::mounts", id = %self.id, path = %request.path().display(), "Delete");
         ticket.pass();
         Ok(())
@@ -108,7 +106,7 @@ impl SyncFilter for CallbackHandler {
         &self,
         request: Request,
         ticket: ticket::FetchPlaceholders,
-        info: info::FetchPlaceholders,
+        _info: info::FetchPlaceholders,
     ) -> CResult<()> {
         let (response_tx, response_rx) = tokio::sync::oneshot::channel();
         let command = MountCommand::FetchPlaceholders {
@@ -177,15 +175,15 @@ impl SyncFilter for CallbackHandler {
 
     fn validate_data(
         &self,
-        request: Request,
-        ticket: ticket::ValidateData,
-        info: info::ValidateData,
+        _request: Request,
+        _ticket: ticket::ValidateData,
+        _info: info::ValidateData,
     ) -> CResult<()> {
         tracing::debug!(target: "drive::mounts", id = %self.id, "ValidateData");
         Err(CloudErrorKind::NotSupported)
     }
 
-    fn cancel_fetch_placeholders(&self, request: Request, info: info::CancelFetchPlaceholders) {
+    fn cancel_fetch_placeholders(&self, _request: Request, _info: info::CancelFetchPlaceholders) {
         tracing::debug!(target: "drive::mounts", id = %self.id, "CancelFetchPlaceholders");
     }
 
@@ -195,8 +193,8 @@ impl SyncFilter for CallbackHandler {
 
     fn dehydrate(
         &self,
-        request: Request,
-        ticket: ticket::Dehydrate,
+        _request: Request,
+        _ticket: ticket::Dehydrate,
         info: info::Dehydrate,
     ) -> CResult<()> {
         tracing::debug!(

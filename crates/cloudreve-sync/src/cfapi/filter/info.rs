@@ -130,16 +130,6 @@ impl FetchPlaceholders {
     /// A glob pattern specifying the files that should be fetched.
     ///
     /// This field is completely optional and does not have to be respected.
-    #[cfg(feature = "globs")]
-    pub fn pattern(&self) -> Result<globset::Glob, globset::Error> {
-        let pattern = unsafe { U16CStr::from_ptr_str(self.0.Pattern.0) }.to_string_lossy();
-        globset::Glob::new(&pattern)
-    }
-
-    /// A glob pattern specifying the files that should be fetched.
-    ///
-    /// This field is completely optional and does not have to be respected.
-    #[cfg(not(feature = "globs"))]
     pub fn pattern(&self) -> String {
         unsafe { U16CStr::from_ptr_str(self.0.Pattern.0) }.to_string_lossy()
     }

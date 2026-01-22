@@ -23,14 +23,9 @@ enum NormalizedEventKind {
     Create,
     /// Modify events other than Name renames
     Modify,
-    /// Modify::Name with RenameMode::To (file/folder resulting from rename)
-    ModifyNameTo,
     /// Modify::Name with RenameMode::From (file/folder that was renamed)
     ModifyNameFrom,
     /// Modify::Name with RenameMode::Both (single event with both paths)
-    ModifyNameBoth,
-    /// Modify::Name with RenameMode::Any or Other
-    ModifyNameAny,
     Remove,
     Other,
 }

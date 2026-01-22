@@ -179,7 +179,7 @@ impl DriveManager {
             // If no metadata, assume it's the sync root, open folder
             None => view_online_url(&config.remote_path, None, &config)?,
             Some(ref meta) if meta.is_folder => view_online_url(&uri, None, &config)?,
-            Some(ref meta) => {
+            Some(ref _meta) => {
                 use cloudreve_api::models::uri::CrUri;
                 let parent_path = CrUri::new(&uri)?.parent()?.to_string();
                 view_online_url(&parent_path, Some(&uri), &config)?

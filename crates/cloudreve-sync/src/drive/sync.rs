@@ -633,7 +633,7 @@ impl Mount {
                     aggregate_error.push(path.clone(), anyhow::Error::from(err));
                 }
             }
-            SyncAction::QueueDownload { path, remote } => {
+            SyncAction::QueueDownload { path, remote:_ } => {
                 tracing::info!(
                     target: "drive::sync",
                     id = %self.id,
@@ -1036,7 +1036,7 @@ impl Mount {
         path: &PathBuf,
         mode: SyncMode,
         local: &LocalFileInfo,
-        inventory: Option<&FileMetadata>,
+        _inventory: Option<&FileMetadata>,
         plan: &mut SyncPlan,
     ) {
         if !local.exists {

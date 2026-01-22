@@ -59,7 +59,9 @@ pub struct ToastInputData {
 #[implement(INotificationActivationCallback)]
 pub struct ToastActivator {
     drive_manager: Arc<DriveManager>,
+     #[allow(dead_code)]
     inventory: Arc<InventoryDb>,
+     #[allow(dead_code)]
     app_root: AppRoot,
 }
 
