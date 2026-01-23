@@ -10,7 +10,7 @@
     "reopenBrowser": "重新打开浏览器",
     "back": "返回",
     "finalSetupTitle": "最终设置",
-    "finalSetupDescription": "选择一个本地文件夹作为云盘的挂载位置。",
+    "finalSetupDescription": "选择一个本地文件夹作为网盘的挂载位置。",
     "localPath": "本地路径",
     "localDriveName": "挂载名称",
     "localPathPlaceholder": "C:\\CloudDrive",
@@ -37,7 +37,7 @@
   },
   "popup": {
     "allDrives": "全部",
-    "newDrive": "新建网盘",
+    "newDrive": "添加网盘",
     "loading": "加载中...",
     "noActivity": "暂无最近活动",
     "syncing": "同步中",
@@ -69,7 +69,7 @@
     "logToFile": "写入日志文件",
     "logToFileDescription": "将日志保存到文件用于调试（需要重启）",
     "logLevel": "日志级别",
-    "logLevelDescription": "设置日志输出的详细程度",
+    "logLevelDescription": "设置日志输出的详细程度（需要重启）",
     "logMaxFiles": "最大日志文件数",
     "logMaxFilesDescription": "保留的日志文件数量（需要重启）",
     "storage": "存储空间",
@@ -83,6 +83,11 @@
       "eventPushLost": "实时事件推送丢失",
       "credentialExpired": "凭证已过期"
     }
+  },
+  "about": {
+    "homepage": "主页",
+    "preview": "预览版",
+    "reportIssue": "报告问题"
   },
   "timeAgo": {
     "justNow": "刚刚",

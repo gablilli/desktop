@@ -2,7 +2,7 @@
 name = "cloudreve-desktop"
 version = "0.1.0"
 description = "Cloudreve Desktop Sync Client"
-authors = ["you"]
+authors = ["cloudreve"]
 license = ""
 repository = ""
 edition = "2021"

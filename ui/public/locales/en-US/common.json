@@ -69,7 +69,7 @@
     "logToFile": "Write logs to file",
     "logToFileDescription": "Save logs to file for debugging (restart required)",
     "logLevel": "Log level",
-    "logLevelDescription": "Set the verbosity of log output",
+    "logLevelDescription": "Set the verbosity of log output (restart required)",
     "logMaxFiles": "Max log files",
     "logMaxFilesDescription": "Number of log files to keep (restart required)",
     "storage": "Storage",
@@ -83,6 +83,11 @@
       "eventPushLost": "Real time event push lost",
       "credentialExpired": "Credential Expired"
     }
+  },
+  "about": {
+    "homepage": "Homepage",
+    "preview": "Preview",
+    "reportIssue": "Report Issue"
   },
   "timeAgo": {
     "justNow": "Just now",
