@@ -32,7 +32,7 @@ impl IExplorerCommand_Impl for CrExplorerCommandHandler_Impl {
     }
 
     fn GetIcon(&self, _items: Option<&IShellItemArray>) -> Result<PWSTR> {
-        let icon_path = format!("{}\\cloudreve3.ico", self.app_root.image_path_general());
+        let icon_path = format!("{}\\cloudreve.ico", self.app_root.image_path_general());
         let hstring = HSTRING::from(icon_path);
         unsafe { SHStrDupW(&hstring) }
     }

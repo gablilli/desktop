@@ -11,7 +11,7 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::OnceCell;
 
-use crate::commands::{show_add_drive_window_impl, show_main_window};
+use crate::commands::{show_add_drive_window_impl, show_main_window, show_settings_window_impl};
 mod commands;
 mod event_handler;
 
@@ -182,8 +182,15 @@ fn setup_tray(app: &tauri::App) -> anyhow::Result<()> {
         true,
         None::<&str>,
     )?;
+    let settings_i = MenuItem::with_id(
+        app,
+        "settings",
+        t!("settings").as_ref(),
+        true,
+        None::<&str>,
+    )?;
     let quit_i = MenuItem::with_id(app, "quit", t!("quit").as_ref(), true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show_i, &add_drive_i, &quit_i])?;
+    let menu = Menu::with_items(app, &[&show_i, &add_drive_i, &settings_i, &quit_i])?;
 
     // Build tray icon
     TrayIconBuilder::new()
@@ -196,6 +203,9 @@ fn setup_tray(app: &tauri::App) -> anyhow::Result<()> {
             }
             "add_drive" => {
                 show_add_drive_window_impl(app);
+            }
+            "settings" => {
+                show_settings_window_impl(app);
             }
             "quit" => {
                 app.exit(0);
@@ -229,6 +239,7 @@ pub fn run() {
             tracing::info!("a new app instance was opened with {argv:?} and the deep link event was already triggered");
             if argv.len() > 1 {
                 let _ = app.emit("deeplink", argv[1].clone());
+                show_add_drive_window_impl(app);
             }
             // when defining deep link schemes at runtime, you must also check `argv` here
         }))

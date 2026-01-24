@@ -174,7 +174,7 @@ impl Mount {
                     .unwrap_or_default(),
                 refresh_expires: config.credentials.refresh_expires.clone(),
             })
-            .await;
+            .await?;
         let command_tx_clone: mpsc::UnboundedSender<MountCommand> = command_tx.clone();
         // Setup hooks to update the credentials in the config
         cr_client.set_on_credential_refreshed(Arc::new(move |token| {

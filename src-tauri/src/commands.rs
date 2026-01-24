@@ -1,7 +1,9 @@
 use crate::AppStateHandle;
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{Duration, Utc};
-use cloudreve_sync::{ConfigManager, Credentials, DriveConfig, DriveInfo, StatusSummary, config::LogLevel};
+use cloudreve_sync::{
+    config::LogLevel, ConfigManager, Credentials, DriveConfig, DriveInfo, StatusSummary,
+};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::{
@@ -11,7 +13,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_frame::WebviewWindowExt;
-use tauri_plugin_positioner::{WindowExt, Position};
+use tauri_plugin_positioner::{Position, WindowExt};
 use uuid::Uuid;
 
 /// Result type for Tauri commands
@@ -183,9 +185,7 @@ pub async fn get_status_summary(
 
 /// Get all drives with their status information for the settings UI
 #[tauri::command]
-pub async fn get_drives_info(
-    state: State<'_, AppStateHandle>,
-) -> CommandResult<Vec<DriveInfo>> {
+pub async fn get_drives_info(state: State<'_, AppStateHandle>) -> CommandResult<Vec<DriveInfo>> {
     let app_state = state
         .get()
         .ok_or_else(|| "App not yet initialized".to_string())?;
@@ -214,12 +214,11 @@ pub async fn get_file_icon(path: String, size: Option<u16>) -> CommandResult<Fil
     let icon_size = size.unwrap_or(32);
 
     // Run the blocking icon retrieval in a separate thread
-    let result = tokio::task::spawn_blocking(move || {
-        file_icon_provider::get_file_icon(&path, icon_size)
-    })
-    .await
-    .map_err(|e| format!("Task join error: {}", e))?
-    .map_err(|e| format!("Failed to get file icon: {:?}", e))?;
+    let result =
+        tokio::task::spawn_blocking(move || file_icon_provider::get_file_icon(&path, icon_size))
+            .await
+            .map_err(|e| format!("Task join error: {}", e))?
+            .map_err(|e| format!("Failed to get file icon: {:?}", e))?;
 
     Ok(FileIconResponse {
         data: BASE64.encode(&result.pixels),
@@ -250,15 +249,19 @@ fn show_main_window_at_position(app: &AppHandle, position: Position) {
     }
 
     // Create new main window
-    match WebviewWindowBuilder::new(app, "main_popup", WebviewUrl::App("index.html/#/popup".into()))
-        .title("Cloudreve")
-        .inner_size(370.0, 530.0)
-        .resizable(false)
-        .visible(false)
-        .decorations(false)
-        .skip_taskbar(true)
-        .minimizable(false)
-        .build()
+    match WebviewWindowBuilder::new(
+        app,
+        "main_popup",
+        WebviewUrl::App("index.html/#/popup".into()),
+    )
+    .title("Cloudreve")
+    .inner_size(370.0, 530.0)
+    .resizable(false)
+    .visible(false)
+    .decorations(false)
+    .skip_taskbar(true)
+    .minimizable(false)
+    .build()
     {
         Ok(window) => {
             // Set up close request handler for fast popup launch
@@ -301,7 +304,12 @@ pub async fn show_add_drive_window(app: AppHandle) -> CommandResult<()> {
 
 /// Command to show the reauthorize window for a specific drive
 #[tauri::command]
-pub async fn show_reauthorize_window(app: AppHandle, drive_id: String, site_url: String, drive_name: String) -> CommandResult<()> {
+pub async fn show_reauthorize_window(
+    app: AppHandle,
+    drive_id: String,
+    site_url: String,
+    drive_name: String,
+) -> CommandResult<()> {
     show_reauthorize_window_impl(&app, &drive_id, &site_url, &drive_name);
     Ok(())
 }
@@ -312,11 +320,19 @@ pub fn show_add_drive_window_impl(app: &AppHandle) {
 }
 
 /// Show or create the reauthorize window for a specific drive
-pub fn show_reauthorize_window_impl(app: &AppHandle, drive_id: &str, site_url: &str, drive_name: &str) {
+pub fn show_reauthorize_window_impl(
+    app: &AppHandle,
+    drive_id: &str,
+    site_url: &str,
+    drive_name: &str,
+) {
     // URL encode the site_url to safely pass it in the route
     let encoded_site_url = urlencoding::encode(site_url);
     let encoded_drive_name = urlencoding::encode(drive_name);
-    let url_path = format!("index.html/#/reauthorize/{}/{}/{}", drive_id, encoded_site_url, encoded_drive_name);
+    let url_path = format!(
+        "index.html/#/reauthorize/{}/{}/{}",
+        drive_id, encoded_site_url, encoded_drive_name
+    );
     show_drive_window_internal(app, "Reauthorize Drive", &url_path);
 }
 
@@ -338,19 +354,15 @@ fn show_drive_window_internal(app: &AppHandle, title: &str, url_path: &str) {
         color: None,
     };
 
-    let builder = WebviewWindowBuilder::new(
-        app,
-        "add-drive",
-        WebviewUrl::App(url_path.into()),
-    )
-    .title(title)
-    .inner_size(470.0, 630.0)
-    .resizable(false)
-    .visible(false)
-    .transparent(true)
-    .effects(effects)
-    .decorations(false)
-    .minimizable(false);
+    let builder = WebviewWindowBuilder::new(app, "add-drive", WebviewUrl::App(url_path.into()))
+        .title(title)
+        .inner_size(470.0, 630.0)
+        .resizable(false)
+        .visible(false)
+        .transparent(true)
+        .effects(effects)
+        .decorations(false)
+        .minimizable(false);
 
     // Platform-specific: title_bar_style and hidden_title are macOS-only
     #[cfg(target_os = "macos")]
@@ -526,6 +538,6 @@ pub async fn open_log_folder() -> CommandResult<()> {
         std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
     }
 
-    showfile::show_path_in_file_manager(log_dir);
+    showfile::show_path_in_file_manager(format!("{}/", log_dir.display()));
     Ok(())
 }

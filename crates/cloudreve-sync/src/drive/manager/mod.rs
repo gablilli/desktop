@@ -372,7 +372,7 @@ impl DriveManager {
                 access_expires: credentials.access_expires.clone().unwrap_or_default(),
                 refresh_expires: credentials.refresh_expires.clone(),
             })
-            .await;
+            .await?;
 
         // Clear the credential expired flag since we got new credentials
         mount.set_credential_expired(false).await;
