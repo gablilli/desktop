@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "./fetch";
 
 interface ManifestIcon {
   sizes: string;

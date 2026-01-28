@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch } from "./fetch";
 import { CALLBACK_PATH, CLIENT_ID, CLIENT_SECRET } from "./constants";
 
 export const MIN_VERSION = "4.12.0";

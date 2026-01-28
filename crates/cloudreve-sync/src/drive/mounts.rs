@@ -160,8 +160,9 @@ impl Mount {
         // let task_manager = TaskManager::new(task_config);
         let (command_tx, command_rx) = mpsc::unbounded_channel();
         // initialize the client with the credentials
-        let client_config =
-            ClientConfig::new(config.instance_url.clone()).with_client_id(config.id.clone());
+        let client_config = ClientConfig::new(config.instance_url.clone())
+            .with_client_id(config.id.clone())
+            .with_user_agent(crate::USER_AGENT);
         let mut cr_client = Client::new(client_config);
         let _ = cr_client
             .set_tokens_with_expiry(&Token {

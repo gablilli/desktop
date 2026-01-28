@@ -574,6 +574,6 @@ pub async fn open_log_folder() -> CommandResult<()> {
         std::fs::create_dir_all(&log_dir).map_err(|e| e.to_string())?;
     }
 
-    showfile::show_path_in_file_manager(format!("{}/", log_dir.display()));
+    showfile::show_path_in_file_manager(format!("{}\\", log_dir.display()));
     Ok(())
 }

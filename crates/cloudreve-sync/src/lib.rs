@@ -16,6 +16,9 @@ pub use drive::mounts::{Credentials, DriveConfig};
 pub use events::{Event, EventBroadcaster};
 pub use logging::{LogConfig, LogGuard};
 
+/// User agent string for HTTP requests
+pub const USER_AGENT: &str = concat!("cloudreve-desktop/", env!("CARGO_PKG_VERSION"));
+
 #[macro_use]
 extern crate rust_i18n;
 
