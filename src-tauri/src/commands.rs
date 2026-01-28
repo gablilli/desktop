@@ -19,6 +19,22 @@ use uuid::Uuid;
 /// Result type for Tauri commands
 type CommandResult<T> = Result<T, String>;
 
+/// Check if a path is a root drive (e.g., "C:\", "D:\", "E:\")
+fn is_root_drive(path: &str) -> bool {
+    let path = path.trim();
+    let chars: Vec<char> = path.chars().collect();
+
+    // Must start with a single ASCII letter followed by ':'
+    if chars.len() < 2 || !chars[0].is_ascii_alphabetic() || chars[1] != ':' {
+        return false;
+    }
+
+    // "C:" or "C:\" or "C:/" (with optional trailing slashes)
+    let rest: String = chars[2..].iter().collect();
+    let rest = rest.trim_end_matches(|c| c == '\\' || c == '/');
+    rest.is_empty()
+}
+
 /// Get the URL with language query parameter appended
 fn get_url_with_lang(base_path: &str) -> String {
     let locale = crate::get_effective_locale();
@@ -61,6 +77,11 @@ pub async fn add_drive(
     let app_state = state
         .get()
         .ok_or_else(|| "App not yet initialized".to_string())?;
+
+    // Validate local_path for new drives (not for reauthorization)
+    if config.drive_id.is_none() && is_root_drive(&config.local_path) {
+        return Err(t!("localPathCannotBeRootDrive").to_string());
+    }
 
     // Convert relative expiry times (seconds) to absolute RFC3339 timestamps
     let now = Utc::now();
