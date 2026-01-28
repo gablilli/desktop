@@ -18,8 +18,8 @@
   <Identity
     Name="2106abslant.Cloudreve"
     Publisher="CN=F536B6E6-7669-4531-8549-562FBE156594"
-    ProcessorArchitecture="arm64"
-    Version="0.1.0.0" />
+    ProcessorArchitecture="__ARCH__"
+    Version="__VERSION__" />
 
   <Properties>
     <DisplayName>Cloudreve</DisplayName>

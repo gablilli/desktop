@@ -20,4 +20,5 @@ Cargo.lock
 # Build artifacts
 /release/
 /debug/
+dist/
 package/*.exe
