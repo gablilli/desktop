@@ -774,11 +774,11 @@ impl Mount {
 
             // Cancel ongoing/pending tasks
             let result = self.task_queue.cancel_by_path(event.paths[0].clone()).await;
-            match result {
-                Ok(0) => {
+            match (result, to_file_info.in_sync()) {
+                (Ok(0), true) => {
                     tracing::debug!(target: "drive::commands", path = %event.paths[0].display(), "No ongoing/pending tasks");
                 }
-                Ok(count) => {
+                (Ok(count), _) => {
                     // Trigger sync on the moved file
                     self.command_tx
                         .send(MountCommand::Sync {
@@ -788,7 +788,7 @@ impl Mount {
                         .context("failed to send sync command")?;
                     tracing::info!(target: "drive::commands", path = %event.paths[0].display(), count = count, "Cancelled tasks");
                 }
-                Err(e) => {
+                (Err(e), _) => {
                     tracing::error!(target: "drive::commands", path = %event.paths[0].display(), error = %e, "Failed to cancel tasks");
                     continue;
                 }
