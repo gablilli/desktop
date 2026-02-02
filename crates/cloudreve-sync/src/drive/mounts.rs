@@ -8,6 +8,7 @@ use crate::drive::commands::MountCommand;
 use crate::drive::event_blocker::EventBlocker;
 use crate::drive::ignore::IgnoreMatcher;
 use crate::drive::sync::group_fs_events;
+use crate::drive::utils::recycle_bin_url;
 use crate::inventory::{DrivePropsUpdate, InventoryDb, TaskRecord};
 use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
 use crate::utils::toast;
@@ -390,7 +391,7 @@ impl Mount {
             }
             sync_root_info.set_version("1.0.0");
             sync_root_info
-                .set_recycle_bin_uri("https://cloudreve.org")
+                .set_recycle_bin_uri(recycle_bin_url(&config).unwrap_or_else(|_| "https://cloudreve.org".to_string()))
                 .context("failed to set recycle bin uri")?;
             sync_root_info
                 .set_path(Path::new(&config.sync_path))

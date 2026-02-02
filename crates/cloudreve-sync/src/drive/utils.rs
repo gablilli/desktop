@@ -79,6 +79,19 @@ pub fn view_online_url(
     Ok(base.to_string())
 }
 
+pub fn recycle_bin_url(config: &DriveConfig) -> Result<String> {
+    let mut base = config.instance_url.parse::<Url>()?;
+    base.set_path("/home");
+
+    {
+        let mut query = base.query_pairs_mut();
+        query.append_pair("user_hint", config.user_id.as_str());
+         query.append_pair("path", "cloudreve://trash");
+    }
+
+    Ok(base.to_string())
+}
+
 // notify_shell_change notify the shell to refresh the file or directory
 pub fn notify_shell_change(path: &PathBuf, event: SHCNE_ID) -> Result<()> {
     let utf16_path = U16CString::from_os_str(path.as_path())?;
