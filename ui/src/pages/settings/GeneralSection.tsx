@@ -11,7 +11,6 @@ import {
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { invoke } from "@tauri-apps/api/core";
-import { isEnabled } from "@tauri-apps/plugin-autostart";
 import { languages } from "../../i18n";
 
 interface SettingItemProps {
@@ -246,7 +245,7 @@ export default function GeneralSection() {
     const loadSettings = async () => {
       try {
         const [enabled, settings] = await Promise.all([
-          isEnabled(),
+          invoke<boolean>("get_auto_start_enabled"),
           invoke<GeneralSettings>("get_general_settings"),
         ]);
         setAutoStart(enabled);
@@ -271,7 +270,10 @@ export default function GeneralSection() {
     const previousValue = autoStart;
     setAutoStart(checked);
     try {
-      await invoke("set_auto_start", { enabled: checked });
+      // set_auto_start returns the actual state after the operation
+      // (may differ from requested if user denies permission)
+      const actualState = await invoke<boolean>("set_auto_start", { enabled: checked });
+      setAutoStart(actualState);
     } catch (error) {
       console.error("Failed to change autostart setting:", error);
       setAutoStart(previousValue);

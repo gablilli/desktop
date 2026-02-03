@@ -1,6 +1,5 @@
 use anyhow::Context;
 use cloudreve_sync::{ConfigManager, DriveManager, EventBroadcaster, LogConfig, LogGuard, shellext::shell_service::ServiceHandle};
-use tauri_plugin_autostart::ManagerExt;
 use std::sync::{Arc, Mutex};
 use tauri::{
     async_runtime::spawn,
@@ -291,14 +290,6 @@ pub fn run() {
                 let _ = window.destroy();
             }
 
-            // Auto start manager
-            let _ = app.handle().plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None));
-            let autostart_manager = app.autolaunch();
-            // Enable autostart
-            if ConfigManager::get().auto_start(){
-                let _ = autostart_manager.enable();
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -313,6 +304,7 @@ pub fn run() {
             commands::show_add_drive_window,
             commands::show_reauthorize_window,
             commands::show_settings_window,
+            commands::get_auto_start_enabled,
             commands::set_auto_start,
             commands::set_notify_credential_expired,
             commands::set_notify_file_conflict,

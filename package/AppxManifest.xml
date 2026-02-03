@@ -64,6 +64,9 @@
         <uap8:ActiveCodePage>UTF-8</uap8:ActiveCodePage>
       </uap7:Properties>
       <Extensions>
+        <desktop:Extension Category="windows.startupTask" Executable="cloudreve-desktop.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="cloudreve" Enabled="true" DisplayName="Cloudreve"/>
+        </desktop:Extension>
         <uap:Extension Category="windows.protocol">
           <uap:Protocol Name="cloudreve" />
         </uap:Extension>

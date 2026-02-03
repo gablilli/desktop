@@ -11,10 +11,10 @@ use tauri::{
     webview::WebviewWindowBuilder,
     AppHandle, Manager, State, WebviewUrl,
 };
-use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_frame::WebviewWindowExt;
 use tauri_plugin_positioner::{Position, WindowExt};
 use uuid::Uuid;
+use windows::ApplicationModel::{StartupTask, StartupTaskState};
 
 /// Result type for Tauri commands
 type CommandResult<T> = Result<T, String>;
@@ -463,23 +463,62 @@ pub fn show_settings_window_impl(app: &AppHandle) {
     }
 }
 
-/// Set auto-start configuration and persist to config file
+/// The TaskId defined in AppxManifest.xml for the startup task
+const STARTUP_TASK_ID: &str = "cloudreve";
+
+/// Get whether auto-start is enabled using Windows StartupTask API
 #[tauri::command]
-pub async fn set_auto_start(app: AppHandle, enabled: bool) -> CommandResult<()> {
-    // Update the config manager
-    ConfigManager::get()
-        .set_auto_start(enabled)
-        .map_err(|e| e.to_string())?;
+pub async fn get_auto_start_enabled() -> CommandResult<bool> {
+    tokio::task::spawn_blocking(|| {
+        let task_id: windows::core::HSTRING = STARTUP_TASK_ID.into();
+        let task = StartupTask::GetAsync(&task_id)
+            .map_err(|e| format!("Failed to get startup task: {}", e))?
+            .get()
+            .map_err(|e| format!("Failed to get startup task: {}", e))?;
 
-    // Also update the OS autostart setting
-    let autostart_manager = app.autolaunch();
-    if enabled {
-        autostart_manager.enable().map_err(|e| e.to_string())?;
-    } else {
-        autostart_manager.disable().map_err(|e| e.to_string())?;
-    }
+        let state = task
+            .State()
+            .map_err(|e| format!("Failed to get task state: {}", e))?;
 
-    Ok(())
+        Ok(matches!(
+            state,
+            StartupTaskState::Enabled | StartupTaskState::EnabledByPolicy
+        ))
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+/// Set auto-start configuration using Windows StartupTask API
+#[tauri::command]
+pub async fn set_auto_start(enabled: bool) -> CommandResult<bool> {
+    tokio::task::spawn_blocking(move || {
+        let task_id: windows::core::HSTRING = STARTUP_TASK_ID.into();
+        let task = StartupTask::GetAsync(&task_id)
+            .map_err(|e| format!("Failed to get startup task: {}", e))?
+            .get()
+            .map_err(|e| format!("Failed to get startup task: {}", e))?;
+
+        if enabled {
+            // Request enable - may prompt user for consent
+            let new_state = task
+                .RequestEnableAsync()
+                .map_err(|e| format!("Failed to request enable: {}", e))?
+                .get()
+                .map_err(|e| format!("Failed to enable startup task: {}", e))?;
+
+            Ok(matches!(
+                new_state,
+                StartupTaskState::Enabled | StartupTaskState::EnabledByPolicy
+            ))
+        } else {
+            task.Disable()
+                .map_err(|e| format!("Failed to disable startup task: {}", e))?;
+            Ok(false)
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 /// Set notification settings for credential expiry
