@@ -160,6 +160,41 @@ unsafe impl Send for ArcWin32Handle {}
 /// Safety: reference counted by syscall
 unsafe impl Sync for ArcWin32Handle {}
 
+/// Configuration for retry behavior when opening placeholder files.
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts (default: 5)
+    pub max_retries: u32,
+    /// Base delay in milliseconds for exponential backoff (default: 500)
+    pub base_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 5,
+            base_delay_ms: 500,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Create a new retry configuration with the specified parameters.
+    pub fn new(max_retries: u32, base_delay_ms: u64) -> Self {
+        Self {
+            max_retries,
+            base_delay_ms,
+        }
+    }
+
+    /// Calculate the delay for a given attempt number (0-indexed).
+    /// Uses exponential backoff: base_delay * 2^attempt
+    fn delay_for_attempt(&self, attempt: u32) -> std::time::Duration {
+        let delay_ms = self.base_delay_ms * (1 << attempt);
+        std::time::Duration::from_millis(delay_ms)
+    }
+}
+
 /// Options for opening a placeholder file/directory.
 pub struct OpenOptions {
     flags: CF_OPEN_FILE_FLAGS,
@@ -216,6 +251,173 @@ impl OpenOptions {
         Ok(Placeholder {
             handle: unsafe { OwnedPlaceholderHandle::from_cfapi(handle) },
         })
+    }
+
+    /// Open the placeholder file/directory using `CreateFileW` with exponential backoff retry.
+    ///
+    /// This method will retry the open operation with exponential backoff if it fails,
+    /// which is useful when files may be temporarily locked by other processes.
+    ///
+    /// Uses default retry configuration (5 retries, 500ms base delay).
+    pub async fn open_win32_with_retry(self, path: impl AsRef<Path>) -> core::Result<Placeholder> {
+        self.open_win32_with_retry_config(path, RetryConfig::default())
+            .await
+    }
+
+    /// Open the placeholder file/directory using `CreateFileW` with configurable retry.
+    ///
+    /// This method will retry the open operation with exponential backoff if it fails,
+    /// which is useful when files may be temporarily locked by other processes.
+    pub async fn open_win32_with_retry_config(
+        self,
+        path: impl AsRef<Path>,
+        config: RetryConfig,
+    ) -> core::Result<Placeholder> {
+        let path = path.as_ref();
+        let u16_path = U16CString::from_os_str(path).unwrap();
+
+        for attempt in 0..=config.max_retries {
+            if attempt > 0 {
+                let delay = config.delay_for_attempt(attempt - 1);
+                tracing::debug!(
+                    target: "cfapi::placeholder",
+                    path = %path.display(),
+                    attempt = attempt,
+                    delay_ms = delay.as_millis(),
+                    "Retrying open_win32 after delay"
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            let result = unsafe {
+                CreateFileW(
+                    PCWSTR(u16_path.as_ptr()),
+                    0,
+                    self.share_mode,
+                    None,
+                    OPEN_EXISTING,
+                    FILE_FLAGS_AND_ATTRIBUTES(0),
+                    None,
+                )
+            };
+
+            match result {
+                Ok(handle) => {
+                    if attempt > 0 {
+                        tracing::debug!(
+                            target: "cfapi::placeholder",
+                            path = %path.display(),
+                            attempt = attempt,
+                            "open_win32 succeeded after retry"
+                        );
+                    }
+                    return Ok(Placeholder {
+                        handle: unsafe { OwnedPlaceholderHandle::from_win32(handle) },
+                    });
+                }
+                Err(e) => {
+                    if attempt == config.max_retries {
+                        tracing::warn!(
+                            target: "cfapi::placeholder",
+                            path = %path.display(),
+                            error = %e,
+                            attempts = config.max_retries + 1,
+                            "open_win32 failed after all retries"
+                        );
+                        return Err(e);
+                    }
+                    tracing::trace!(
+                        target: "cfapi::placeholder",
+                        path = %path.display(),
+                        error = %e,
+                        attempt = attempt,
+                        "open_win32 attempt failed, will retry"
+                    );
+                }
+            }
+        }
+
+        // This should never be reached due to the return in the last iteration
+        unreachable!()
+    }
+
+    /// Open the placeholder file/directory using `CfOpenFileWithOplock` with exponential backoff retry.
+    ///
+    /// This method will retry the open operation with exponential backoff if it fails,
+    /// which is useful when files may be temporarily locked by other processes.
+    ///
+    /// Uses default retry configuration (5 retries, 500ms base delay).
+    pub async fn open_with_retry(self, path: impl AsRef<Path>) -> core::Result<Placeholder> {
+        self.open_with_retry_config(path, RetryConfig::default())
+            .await
+    }
+
+    /// Open the placeholder file/directory using `CfOpenFileWithOplock` with configurable retry.
+    ///
+    /// This method will retry the open operation with exponential backoff if it fails,
+    /// which is useful when files may be temporarily locked by other processes.
+    pub async fn open_with_retry_config(
+        self,
+        path: impl AsRef<Path>,
+        config: RetryConfig,
+    ) -> core::Result<Placeholder> {
+        let path = path.as_ref();
+        let u16_path = U16CString::from_os_str(path).unwrap();
+
+        for attempt in 0..=config.max_retries {
+            if attempt > 0 {
+                let delay = config.delay_for_attempt(attempt - 1);
+                tracing::debug!(
+                    target: "cfapi::placeholder",
+                    path = %path.display(),
+                    attempt = attempt,
+                    delay_ms = delay.as_millis(),
+                    "Retrying open after delay"
+                );
+                tokio::time::sleep(delay).await;
+            }
+
+            let result =
+                unsafe { CfOpenFileWithOplock(PCWSTR(u16_path.as_ptr()), self.flags) };
+
+            match result {
+                Ok(handle) => {
+                    if attempt > 0 {
+                        tracing::debug!(
+                            target: "cfapi::placeholder",
+                            path = %path.display(),
+                            attempt = attempt,
+                            "open succeeded after retry"
+                        );
+                    }
+                    return Ok(Placeholder {
+                        handle: unsafe { OwnedPlaceholderHandle::from_cfapi(handle) },
+                    });
+                }
+                Err(e) => {
+                    if attempt == config.max_retries {
+                        tracing::warn!(
+                            target: "cfapi::placeholder",
+                            path = %path.display(),
+                            error = %e,
+                            attempts = config.max_retries + 1,
+                            "open failed after all retries"
+                        );
+                        return Err(e);
+                    }
+                    tracing::trace!(
+                        target: "cfapi::placeholder",
+                        path = %path.display(),
+                        error = %e,
+                        attempt = attempt,
+                        "open attempt failed, will retry"
+                    );
+                }
+            }
+        }
+
+        // This should never be reached due to the return in the last iteration
+        unreachable!()
     }
 }
 

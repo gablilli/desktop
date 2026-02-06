@@ -431,7 +431,8 @@ impl Mount {
                 match OpenOptions::new()
                     .write_access()
                     .exclusive()
-                    .open(&destination)
+                    .open_with_retry(&destination)
+                    .await
                 {
                     Ok(mut handle) => {
                         tracing::trace!(target: "drive::commands", path = %destination.display(), "Marking file as in-sync");
@@ -443,7 +444,7 @@ impl Mount {
                         Ok(())
                     }
                     Err(e) => {
-                        tracing::error!(target: "drive::commands", error = %e, "Failed to open file");
+                        tracing::error!(target: "drive::commands", error = %e, "Failed to open file after retries");
                         Err(e.into())
                     }
                 }
@@ -843,68 +844,35 @@ impl Mount {
             } else if pin_state == PinState::Unpinned {
                 tracing::debug!(target: "drive::commands", path = %path.display(), "Dehydrate unpinned file");
 
-                const MAX_RETRIES: u32 = 5;
-                const BASE_DELAY_MS: u64 = 500;
-
-                let mut success = false;
-                for attempt in 0..=MAX_RETRIES {
-                    if attempt > 0 {
-                        let delay_ms = BASE_DELAY_MS * (1 << (attempt - 1)); // Exponential backoff: 100, 200, 400ms
-                        tracing::debug!(
+                let mut placeholder = match OpenOptions::new()
+                    .open_win32_with_retry(path.as_path())
+                    .await
+                {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::error!(
                             target: "drive::commands",
                             path = %path.display(),
-                            attempt = attempt,
-                            delay_ms = delay_ms,
-                            "Retrying dehydration after delay"
+                            error = %e,
+                            "Failed to open win32 file for dehydration after retries"
                         );
-                        tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+                        continue;
                     }
+                };
 
-                    let mut placeholder = match OpenOptions::new().open_win32(path.as_path()) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            tracing::warn!(
-                                target: "drive::commands",
-                                path = %path.display(),
-                                error = %e,
-                                attempt = attempt,
-                                "Failed to open win32 file for dehydration"
-                            );
-                            continue;
-                        }
-                    };
-
-                    match placeholder.dehydrate(0..) {
-                        Ok(_) => {
-                            tracing::trace!(target: "drive::commands", path = %path.display(), "Dehydration complete");
-                            _ = notify_shell_change(&path, SHCNE_ATTRIBUTES);
-                            success = true;
-                            break;
-                        }
-                        Err(e) => {
-                            if attempt == MAX_RETRIES {
-                                tracing::error!(
-                                    target: "drive::commands",
-                                    path = %path.display(),
-                                    error = %e,
-                                    "Failed to dehydrate placeholder after {} retries",
-                                    MAX_RETRIES
-                                );
-                            } else {
-                                tracing::warn!(
-                                    target: "drive::commands",
-                                    path = %path.display(),
-                                    error = %e,
-                                    attempt = attempt,
-                                    "Dehydration attempt failed, will retry"
-                                );
-                            }
-                        }
+                match placeholder.dehydrate(0..) {
+                    Ok(_) => {
+                        tracing::trace!(target: "drive::commands", path = %path.display(), "Dehydration complete");
+                        _ = notify_shell_change(&path, SHCNE_ATTRIBUTES);
                     }
-                }
-
-                if !success {
-                    continue;
+                    Err(e) => {
+                        tracing::error!(
+                            target: "drive::commands",
+                            path = %path.display(),
+                            error = %e,
+                            "Failed to dehydrate placeholder"
+                        );
+                    }
                 }
                 continue;
             }
