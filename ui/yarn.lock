@@ -816,24 +816,22 @@
   resolved "https://registry.yarnpkg.com/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.55.1.tgz#f79437939020b83057faf07e98365b1fa51c458b"
   integrity sha512-SPEpaL6DX4rmcXtnhdrQYgzQ5W2uW3SCJch88lB2zImhJRhIIK44fkUrgIV/Q8yUNfw5oyZ5vkeQsZLhCb06lw==
 
+"@tauri-apps/api@^2.10.1", "@tauri-apps/api@^2.9.5":
+  version "2.10.1"
+  resolved "https://registry.yarnpkg.com/@tauri-apps/api/-/api-2.10.1.tgz#57c1bae6114ec33d977eb2b50dfefc25fa84fc93"
+  integrity sha512-hKL/jWf293UDSUN09rR69hrToyIXBb8CjGaWC7gfinvnQrBVvnLr08FeFi38gxtugAVyVcTa5/FD/Xnkb1siBw==
+
 "@tauri-apps/api@^2.8.0":
   version "2.9.1"
   resolved "https://registry.npmjs.org/@tauri-apps/api/-/api-2.9.1.tgz"
   integrity sha512-IGlhP6EivjXHepbBic618GOmiWe4URJiIeZFlB7x3czM0yDHHYviH1Xvoiv4FefdkQtn6v7TuwWCRfOGdnVUGw==
 
-"@tauri-apps/plugin-autostart@^2.5.1":
-  version "2.5.1"
-  resolved "https://registry.yarnpkg.com/@tauri-apps/plugin-autostart/-/plugin-autostart-2.5.1.tgz#e9e0bdfd721838eff620430889325c641a853a54"
-  integrity sha512-zS/xx7yzveCcotkA+8TqkI2lysmG2wvQXv2HGAVExITmnFfHAdj1arGsbbfs3o6EktRHf6l34pJxc3YGG2mg7w==
+"@tauri-apps/plugin-deep-link@^2.0.0":
+  version "2.4.7"
+  resolved "https://registry.yarnpkg.com/@tauri-apps/plugin-deep-link/-/plugin-deep-link-2.4.7.tgz#6d5b60e11d1bc668ed0116a45afb7d54f2fd6226"
+  integrity sha512-K0FQlLM6BoV7Ws2xfkh+Tnwi5VZVdkI4Vw/3AGLSf0Xvu2y86AMBzd9w/SpzKhw9ai2B6ES8di/OoGDCExkOzg==
   dependencies:
-    "@tauri-apps/api" "^2.8.0"
-
-"@tauri-apps/plugin-deep-link@^2.4.6":
-  version "2.4.6"
-  resolved "https://registry.npmjs.org/@tauri-apps/plugin-deep-link/-/plugin-deep-link-2.4.6.tgz"
-  integrity sha512-UUOSt0U5juK20uhO2MoHZX/IPblkrhUh+VPtIeu3RwtzI0R9Em3Auzfg/PwcZ9Pv8mLne3cQ4p9CFXD6WxqCZA==
-  dependencies:
-    "@tauri-apps/api" "^2.8.0"
+    "@tauri-apps/api" "^2.10.1"
 
 "@tauri-apps/plugin-dialog@^2.6.0":
   version "2.6.0"
