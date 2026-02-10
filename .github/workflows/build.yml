@@ -43,8 +43,11 @@ jobs:
       # Install Tauri CLI
       - name: Install Tauri CLI
         run: cargo install tauri-cli
-
-      # Build Tauri
+      
+      - name: Build frontend
+        working-directory: ui
+        run: yarn run build
+      
       - name: Build Tauri app
         working-directory: src-tauri
         run: cargo tauri build
