@@ -66,16 +66,21 @@ export default function DrivesSection() {
         }))
       );
       
-      // Fetch sync directions for all drives
-      const directions: Record<string, string> = {};
-      for (const drive of result) {
+      // Fetch sync directions for all drives concurrently
+      const directionPromises = result.map(async (drive) => {
         try {
           const direction = await invoke<string>("get_sync_direction", { driveId: drive.id });
-          directions[drive.id] = direction;
+          return { id: drive.id, direction };
         } catch (error) {
           console.error(`Failed to fetch sync direction for drive ${drive.id}:`, error);
-          directions[drive.id] = "two_way"; // default
+          return { id: drive.id, direction: "two_way" }; // default
         }
+      });
+      
+      const directionResults = await Promise.all(directionPromises);
+      const directions: Record<string, string> = {};
+      for (const { id, direction } of directionResults) {
+        directions[id] = direction;
       }
       setSyncDirections(directions);
     } catch (error) {
