@@ -25,13 +25,12 @@ jobs:
         working-directory: ui
         run: yarn install --frozen-lockfile
 
-      # Rust (MSVC toolchain)
+      # Rust (MSVC)
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
 
-      # Cache cargo
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -41,16 +40,20 @@ jobs:
             src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
 
+      # Install Tauri CLI
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
       # Build Tauri
       - name: Build Tauri app
         working-directory: src-tauri
-        run: cargo tauri dev
+        run: cargo tauri build
 
-      # Upload EXE
+      # Upload EXE / installer
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
-          name: tauri-windows-exe
+          name: tauri-windows
           path: |
             src-tauri/target/release/*.exe
             src-tauri/target/release/bundle/**
