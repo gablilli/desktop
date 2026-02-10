@@ -30,6 +30,18 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio::task::JoinHandle;
 use url::Url;
 use windows::Storage::Provider::StorageProviderSyncRootManager;
+/// Determines the direction of synchronization for a drive
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncDirection {
+    /// Two-way sync: changes are synchronized in both directions
+    #[default]
+    TwoWay,
+    /// One-way sync: only local changes are uploaded to the cloud (PC → Cloud)
+    /// Files deleted on the cloud will NOT be deleted locally
+    OneWayUpload,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DriveConfig {
     pub id: String,
@@ -50,6 +62,10 @@ pub struct DriveConfig {
     /// List of gitignore-style patterns for files/directories to ignore during sync
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
+
+    /// Sync direction: two-way (default) or one-way (PC → Cloud only)
+    #[serde(default)]
+    pub sync_direction: SyncDirection,
 
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -304,6 +320,16 @@ impl Mount {
     /// Get a copy of the current status flags
     pub async fn get_status_flags(&self) -> MountStatusFlags {
         *self.status_flags.lock().await
+    }
+
+    /// Get the sync direction for the drive
+    pub async fn get_sync_direction(&self) -> SyncDirection {
+        self.config.read().await.sync_direction
+    }
+
+    /// Set the sync direction for the drive
+    pub async fn set_sync_direction(&self, direction: SyncDirection) {
+        self.config.write().await.sync_direction = direction;
     }
 
     /// Set the credential expired flag.

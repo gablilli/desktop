@@ -82,6 +82,8 @@
     "reauthorize": "Réautoriser",
     "deleteDrive": "Supprimer",
     "deleteDriveConfirm": "Êtes-vous sûr de vouloir supprimer « {{name}} » ?",
+    "oneWaySync": "Synchronisation unidirectionnelle (PC → Cloud)",
+    "syncDirectionDescription": "Lorsque cette option est activée, les fichiers supprimés sur le cloud ne seront PAS supprimés localement. Seules les modifications locales sont téléchargées vers le cloud.",
     "driveStatus": {
       "active": "Actif",
       "eventPushLost": "Perte du push d'événements en temps réel",

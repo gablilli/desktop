@@ -8,6 +8,8 @@ import {
   Tooltip,
   Link,
   Divider,
+  FormControlLabel,
+  Switch,
 } from "@mui/material";
 import {
   FolderOpen as FolderOpenIcon,
@@ -49,6 +51,7 @@ export default function DrivesSection() {
   const [drives, setDrives] = useState<DriveInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const isFetchingRef = useRef(false);
+  const [syncDirections, setSyncDirections] = useState<Record<string, string>>({});
 
   const fetchDrives = useCallback(async () => {
     if (isFetchingRef.current) return;
@@ -62,6 +65,19 @@ export default function DrivesSection() {
           status: drive.status as DriveInfo["status"],
         }))
       );
+      
+      // Fetch sync directions for all drives
+      const directions: Record<string, string> = {};
+      for (const drive of result) {
+        try {
+          const direction = await invoke<string>("get_sync_direction", { driveId: drive.id });
+          directions[drive.id] = direction;
+        } catch (error) {
+          console.error(`Failed to fetch sync direction for drive ${drive.id}:`, error);
+          directions[drive.id] = "two_way"; // default
+        }
+      }
+      setSyncDirections(directions);
     } catch (error) {
       console.error("Failed to fetch drives:", error);
     } finally {
@@ -123,6 +139,22 @@ export default function DrivesSection() {
       await invoke("show_add_drive_window");
     } catch (error) {
       console.error("Failed to open add drive window:", error);
+    }
+  };
+
+  const handleSyncDirectionChange = async (driveId: string, checked: boolean) => {
+    const newDirection = checked ? "one_way_upload" : "two_way";
+    const previousDirection = syncDirections[driveId] || "two_way";
+    
+    // Optimistically update state
+    setSyncDirections(prev => ({ ...prev, [driveId]: newDirection }));
+    
+    try {
+      await invoke("set_sync_direction", { driveId, direction: newDirection });
+    } catch (error) {
+      console.error("Failed to change sync direction:", error);
+      // Revert on error
+      setSyncDirections(prev => ({ ...prev, [driveId]: previousDirection }));
     }
   };
 
@@ -336,6 +368,26 @@ export default function DrivesSection() {
                         />
                       </Box>
                     )}
+
+                    {/* Sync Direction Toggle */}
+                    <Tooltip title={t("settings.syncDirectionDescription")} placement="bottom-start">
+                      <FormControlLabel
+                        control={
+                          <Switch
+                            size="small"
+                            checked={syncDirections[drive.id] === "one_way_upload"}
+                            onChange={(e) => handleSyncDirectionChange(drive.id, e.target.checked)}
+                            disabled={loading}
+                          />
+                        }
+                        label={
+                          <Typography variant="caption" color="text.secondary">
+                            {t("settings.oneWaySync")}
+                          </Typography>
+                        }
+                        sx={{ ml: 0 }}
+                      />
+                    </Tooltip>
 
                   </Box>
                 </Box>

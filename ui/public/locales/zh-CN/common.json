@@ -82,6 +82,8 @@
     "reauthorize": "重新授权",
     "deleteDrive": "删除",
     "deleteDriveConfirm": "确定要删除「{{name}}」吗？",
+    "oneWaySync": "单向同步（仅 PC → 云端）",
+    "syncDirectionDescription": "启用后，云端删除的文件不会在本地删除。只有本地更改会上传到云端。",
     "driveStatus": {
       "active": "活跃",
       "eventPushLost": "实时事件推送丢失",

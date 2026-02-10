@@ -5,7 +5,7 @@ use crate::{
         placeholder_file::PlaceholderFile,
     },
     drive::{
-        mounts::Mount,
+        mounts::{Mount, SyncDirection},
         placeholder::CrPlaceholder,
         utils::{local_path_to_cr_uri, remote_path_to_local_relative_path},
     },
@@ -451,9 +451,9 @@ impl Mount {
         ));
 
         // For sync root, directly walk to descendants
-        let sync_root = {
+        let (sync_root, sync_direction) = {
             let config = self.config.read().await;
-            config.sync_path.clone()
+            (config.sync_path.clone(), config.sync_direction)
         };
         if paths.len() == 1 && paths[0] == sync_root {
             tracing::debug!(
@@ -505,6 +505,7 @@ impl Mount {
         let plan = self.build_sync_plan(
             parent,
             mode,
+            sync_direction,
             paths,
             &remote_files,
             &local_files,
@@ -915,6 +916,7 @@ impl Mount {
         &self,
         _parent: &PathBuf,
         mode: SyncMode,
+        sync_direction: SyncDirection,
         paths: &[PathBuf],
         remote_files: &HashMap<PathBuf, FileResponse>,
         local_files: &HashMap<PathBuf, LocalFileInfo>,
@@ -929,7 +931,7 @@ impl Mount {
                 .unwrap_or_else(LocalFileInfo::missing);
             let remote = remote_files.get(path);
             let inventory = inventory_entries.get(path);
-            self.plan_entry_actions(path, mode, remote, &local_info, inventory, &mut plan);
+            self.plan_entry_actions(path, mode, sync_direction, remote, &local_info, inventory, &mut plan);
         }
 
         plan
@@ -939,6 +941,7 @@ impl Mount {
         &self,
         path: &PathBuf,
         mode: SyncMode,
+        sync_direction: SyncDirection,
         remote: Option<&FileResponse>,
         local: &LocalFileInfo,
         inventory: Option<&FileMetadata>,
@@ -954,6 +957,11 @@ impl Mount {
                 plan,
             ),
             (Some(remote_entry), false) => {
+                // In one-way upload mode, skip creating placeholders for remote-only files
+                // because we only sync from local to remote
+                if sync_direction == SyncDirection::OneWayUpload {
+                    return;
+                }
                 plan.actions
                     .push(SyncAction::CreatePlaceholderAndInventory {
                         path: path.clone(),
@@ -961,7 +969,7 @@ impl Mount {
                     });
             }
             (None, true) => {
-                self.plan_entry_with_local_only(path, mode, local, inventory, plan);
+                self.plan_entry_with_local_only(path, mode, sync_direction, local, inventory, plan);
             }
             (None, false) => {}
         }
@@ -1035,6 +1043,7 @@ impl Mount {
         &self,
         path: &PathBuf,
         mode: SyncMode,
+        sync_direction: SyncDirection,
         local: &LocalFileInfo,
         _inventory: Option<&FileMetadata>,
         plan: &mut SyncPlan,
@@ -1046,6 +1055,10 @@ impl Mount {
         if local.is_directory {
             let hydrated = local.is_folder_populated();
             if !hydrated {
+                // In one-way upload mode, skip deleting local directories that are not on remote
+                if sync_direction == SyncDirection::OneWayUpload {
+                    return;
+                }
                 plan.actions.push(SyncAction::DeleteLocalAndInventory {
                     path: path.clone(),
                     skip_if_not_empty: false,
@@ -1054,16 +1067,24 @@ impl Mount {
             }
 
             self.maybe_enqueue_walk_for_directory(path, mode, local, true, hydrated, plan);
-            plan.actions.push(SyncAction::DeleteLocalAndInventory {
-                path: path.clone(),
-                skip_if_not_empty: true,
-            });
+            // In one-way upload mode, skip deleting local directories that are not on remote
+            if sync_direction != SyncDirection::OneWayUpload {
+                plan.actions.push(SyncAction::DeleteLocalAndInventory {
+                    path: path.clone(),
+                    skip_if_not_empty: true,
+                });
+            }
             plan.actions
                 .push(SyncAction::CreateRemoteFolderIfExist { path: path.clone() });
             return;
         }
 
         if local.is_placeholder() && local.in_sync() {
+            // In one-way upload mode, skip deleting local placeholder files that are not on remote
+            // (i.e., files that were deleted on the remote should NOT be deleted locally)
+            if sync_direction == SyncDirection::OneWayUpload {
+                return;
+            }
             plan.actions.push(SyncAction::DeleteLocalAndInventory {
                 path: path.clone(),
                 skip_if_not_empty: false,

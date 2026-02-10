@@ -81,7 +81,9 @@
     "openSite": "Otwórz witrynę",
     "reauthorize": "Ponownie autoryzuj",
     "deleteDrive": "Usuń",
-    "deleteDriveConfirm": "Czy na pewno chcesz usunąć „{{name}}"?",
+    "deleteDriveConfirm": "Czy na pewno chcesz usunąć «{{name}}»?",
+    "oneWaySync": "Synchronizacja jednokierunkowa (PC → Chmura)",
+    "syncDirectionDescription": "Po włączeniu pliki usunięte w chmurze NIE będą usuwane lokalnie. Tylko lokalne zmiany są przesyłane do chmury.",
     "driveStatus": {
       "active": "Aktywny",
       "eventPushLost": "Utracono połączenie z powiadomieniami w czasie rzeczywistym",

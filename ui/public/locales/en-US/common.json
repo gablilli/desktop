@@ -82,6 +82,8 @@
     "reauthorize": "Reauthorize",
     "deleteDrive": "Delete",
     "deleteDriveConfirm": "Are you sure you want to delete \"{{name}}\"?",
+    "oneWaySync": "One-way sync (PC → Cloud only)",
+    "syncDirectionDescription": "When enabled, files deleted on the cloud will NOT be deleted locally. Only local changes are uploaded to the cloud.",
     "driveStatus": {
       "active": "Active",
       "eventPushLost": "Real time event push lost",

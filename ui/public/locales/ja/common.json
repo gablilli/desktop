@@ -82,6 +82,8 @@
     "reauthorize": "再認証",
     "deleteDrive": "削除",
     "deleteDriveConfirm": "「{{name}}」を削除してもよろしいですか？",
+    "oneWaySync": "一方向同期（PC → クラウドのみ）",
+    "syncDirectionDescription": "有効にすると、クラウドで削除されたファイルはローカルで削除されません。ローカルの変更のみがクラウドにアップロードされます。",
     "driveStatus": {
       "active": "アクティブ",
       "eventPushLost": "リアルタイムイベントプッシュが切断",
