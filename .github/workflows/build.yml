@@ -50,7 +50,7 @@ jobs:
       
       - name: Build Tauri app
         working-directory: src-tauri
-        run: cargo tauri build
+        run: cargo tauri build -- --no-default-build-command
 
       # Upload EXE / installer
       - name: Upload Windows executable
