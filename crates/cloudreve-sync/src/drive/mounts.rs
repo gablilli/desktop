@@ -37,8 +37,7 @@ pub enum SyncDirection {
     /// Two-way sync: changes are synchronized in both directions
     #[default]
     TwoWay,
-    /// One-way sync: only local changes are uploaded to the cloud (PC → Cloud)
-    /// Files deleted on the cloud will NOT be deleted locally
+    /// One-way sync: only local changes are uploaded to the cloud (PC to Cloud)
     OneWayUpload,
 }
 
@@ -63,7 +62,7 @@ pub struct DriveConfig {
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
 
-    /// Sync direction: two-way (default) or one-way (PC → Cloud only)
+    /// Sync direction: two-way (default) or one-way (PC to Cloud only)
     #[serde(default)]
     pub sync_direction: SyncDirection,
 
