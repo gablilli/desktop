@@ -5,7 +5,7 @@ mod types;
 pub use types::*;
 
 use crate::drive::commands::ManagerCommand;
-use crate::drive::mounts::{Credentials, DriveConfig, Mount};
+use crate::drive::mounts::{Credentials, DriveConfig, Mount, SyncDirection};
 use crate::EventBroadcaster;
 use crate::inventory::InventoryDb;
 use crate::tasks::TaskProgress;
@@ -665,5 +665,24 @@ impl DriveManager {
                 0
             }
         }
+    }
+
+    /// Get the sync direction for a specific drive
+    pub async fn get_sync_direction(&self, drive_id: &str) -> Result<SyncDirection> {
+        let read_guard = self.drives.read().await;
+        let mount = read_guard
+            .get(drive_id)
+            .ok_or_else(|| anyhow::anyhow!("Drive not found: {}", drive_id))?;
+        Ok(mount.get_sync_direction().await)
+    }
+
+    /// Set the sync direction for a specific drive
+    pub async fn set_sync_direction(&self, drive_id: &str, direction: SyncDirection) -> Result<()> {
+        let read_guard = self.drives.read().await;
+        let mount = read_guard
+            .get(drive_id)
+            .ok_or_else(|| anyhow::anyhow!("Drive not found: {}", drive_id))?;
+        mount.set_sync_direction(direction).await;
+        Ok(())
     }
 }

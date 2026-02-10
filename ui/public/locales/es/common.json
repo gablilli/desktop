@@ -82,6 +82,8 @@
     "reauthorize": "Reautorizar",
     "deleteDrive": "Eliminar",
     "deleteDriveConfirm": "¿Está seguro de que desea eliminar \"{{name}}\"?",
+    "oneWaySync": "Sincronización unidireccional (PC → Nube)",
+    "syncDirectionDescription": "Cuando está habilitado, los archivos eliminados en la nube NO se eliminarán localmente. Solo los cambios locales se cargan a la nube.",
     "driveStatus": {
       "active": "Activo",
       "eventPushLost": "Pérdida de notificaciones en tiempo real",

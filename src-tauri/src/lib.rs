@@ -315,6 +315,8 @@ pub fn run() {
             commands::set_log_max_files,
             commands::set_language,
             commands::open_log_folder,
+            commands::get_sync_direction,
+            commands::set_sync_direction,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

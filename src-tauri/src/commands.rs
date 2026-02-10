@@ -2,7 +2,7 @@ use crate::AppStateHandle;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use chrono::{Duration, Utc};
 use cloudreve_sync::{
-    config::LogLevel, ConfigManager, Credentials, DriveConfig, DriveInfo, StatusSummary,
+    config::LogLevel, ConfigManager, Credentials, DriveConfig, DriveInfo, StatusSummary, SyncDirection,
 };
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
@@ -635,5 +635,60 @@ pub async fn open_log_folder() -> CommandResult<()> {
     }
 
     showfile::show_path_in_file_manager(format!("{}\\", log_dir.display()));
+    Ok(())
+}
+
+/// Get the sync direction for a specific drive
+#[tauri::command]
+pub async fn get_sync_direction(
+    state: State<'_, AppStateHandle>,
+    drive_id: String,
+) -> CommandResult<String> {
+    let app_state = state
+        .get()
+        .ok_or_else(|| "App not yet initialized".to_string())?;
+
+    let direction = app_state
+        .drive_manager
+        .get_sync_direction(&drive_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(match direction {
+        SyncDirection::TwoWay => "two_way".to_string(),
+        SyncDirection::OneWayUpload => "one_way_upload".to_string(),
+    })
+}
+
+/// Set the sync direction for a specific drive
+#[tauri::command]
+pub async fn set_sync_direction(
+    state: State<'_, AppStateHandle>,
+    drive_id: String,
+    direction: String,
+) -> CommandResult<()> {
+    let app_state = state
+        .get()
+        .ok_or_else(|| "App not yet initialized".to_string())?;
+
+    let sync_direction = match direction.as_str() {
+        "two_way" => SyncDirection::TwoWay,
+        "one_way_upload" => SyncDirection::OneWayUpload,
+        _ => return Err(format!("Invalid sync direction: {}", direction)),
+    };
+
+    app_state
+        .drive_manager
+        .set_sync_direction(&drive_id, sync_direction)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Persist drive configurations after update
+    app_state
+        .drive_manager
+        .persist()
+        .await
+        .map_err(|e| e.to_string())?;
+
     Ok(())
 }

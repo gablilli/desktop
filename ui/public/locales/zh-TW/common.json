@@ -82,6 +82,8 @@
     "reauthorize": "重新授權",
     "deleteDrive": "刪除",
     "deleteDriveConfirm": "確定要刪除「{{name}}」嗎？",
+    "oneWaySync": "單向同步（僅 PC → 雲端）",
+    "syncDirectionDescription": "啟用後，雲端刪除的檔案不會在本機刪除。只有本機變更會上傳到雲端。",
     "driveStatus": {
       "active": "活躍",
       "eventPushLost": "即時事件推送中斷",

@@ -82,6 +82,8 @@
     "reauthorize": "Erneut autorisieren",
     "deleteDrive": "Löschen",
     "deleteDriveConfirm": "Sind Sie sicher, dass Sie \"{{name}}\" löschen möchten?",
+    "oneWaySync": "Einwegsynchronisierung (PC → Cloud)",
+    "syncDirectionDescription": "Wenn aktiviert, werden in der Cloud gelöschte Dateien NICHT lokal gelöscht. Nur lokale Änderungen werden in die Cloud hochgeladen.",
     "driveStatus": {
       "active": "Aktiv",
       "eventPushLost": "Echtzeit-Event-Push unterbrochen",
