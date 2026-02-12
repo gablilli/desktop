@@ -28,7 +28,7 @@ jobs:
         with:
           workspaces: "src-tauri -> target"
 
-      - name: Install frontend dependencies
+      - name: Install dependencies
         working-directory: ui
         run: yarn install --frozen-lockfile
 
@@ -37,11 +37,10 @@ jobs:
         run: yarn build
 
       - name: Build Tauri app
-        run: |
-          yarn add -D @tauri-apps/cli
-          yarn tauri build
-        working-directory: ui 
-        
+        run: npx @tauri-apps/cli build
+        env:
+          CI: true
+
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
@@ -49,3 +48,4 @@ jobs:
           path: |
             src-tauri/target/release/*.exe
             src-tauri/target/release/bundle/msi/*.msi
+            src-tauri/target/release/bundle/setup.exe
