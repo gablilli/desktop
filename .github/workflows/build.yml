@@ -7,6 +7,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      TAURI_SKIP_VERSION_CHECK: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,9 +28,11 @@ jobs:
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "src-tauri -> target"
+          workspaces: |
+            src-tauri -> target
+            crates -> target
 
-      - name: Install dependencies
+      - name: Install frontend dependencies
         working-directory: ui
         run: yarn install --frozen-lockfile
 
@@ -36,16 +40,19 @@ jobs:
         working-directory: ui
         run: yarn build
 
-      - name: Build Tauri app
-        run: npx @tauri-apps/cli build
+      - name: Build Tauri App
+        uses: tauri-apps/tauri-action@v0
         env:
-          CI: true
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SKIP_VERSION_CHECK: true
-        
-      - name: Upload Windows executable
+        with:
+          projectPath: .
+          args: --config "{ \"build\": { \"beforeBuildCommand\": \"\" } }"
+
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tauri-windows
+          name: Cloudreve-Desktop-Windows
           path: |
             src-tauri/target/release/*.exe
             src-tauri/target/release/bundle/msi/*.msi
