@@ -1,5 +1,4 @@
 name: Build Tauri Windows
-
 on:
   push:
     branches: [ main ]
@@ -8,55 +7,45 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Node.js + Yarn
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: yarn
+          cache: 'yarn'
           cache-dependency-path: ui/yarn.lock
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "src-tauri -> target"
 
       - name: Install frontend dependencies
         working-directory: ui
         run: yarn install --frozen-lockfile
 
-      # Rust (MSVC)
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-msvc
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            src-tauri/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
-
-      # Install Tauri CLI
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
-      
       - name: Build frontend
         working-directory: ui
-        run: yarn run build
-      
-      - name: Build Tauri app
-        working-directory: src-tauri
-        run: cargo tauri build -- --no-default-build-command
+        run: yarn build
 
-      # Upload EXE / installer
+      - name: Build Tauri app
+        run: |
+          yarn add -D @tauri-apps/cli
+          yarn tauri build
+        working-directory: ui 
+        
       - name: Upload Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: tauri-windows
           path: |
             src-tauri/target/release/*.exe
-            src-tauri/target/release/bundle/**
+            src-tauri/target/release/bundle/msi/*.msi
