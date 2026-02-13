@@ -47,8 +47,9 @@ jobs:
           TAURI_SKIP_VERSION_CHECK: true
         with:
           projectPath: .
-          # Ho pulito la stringa degli args per evitare errori di parsing YAML
-          args: --config '{"build": {"beforeBuildCommand": ""}}'
+          # L'uso di ">" permette di scrivere il JSON in modo pulito senza errori di sintassi YAML
+          args: >
+            --config "{\"build\": {\"beforeBuildCommand\": \"\"}}"
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
