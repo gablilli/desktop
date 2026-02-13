@@ -6,9 +6,9 @@ on:
 
 jobs:
   build-windows:
+    permissions:
+      contents: write
     runs-on: windows-latest
-    env:
-      TAURI_SKIP_VERSION_CHECK: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,15 +16,15 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: lts/*
           cache: 'yarn'
           cache-dependency-path: ui/yarn.lock
 
-      - name: Install Rust toolchain
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-
+          
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
@@ -41,15 +41,19 @@ jobs:
         run: yarn build
 
       - name: Build Tauri App
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SKIP_VERSION_CHECK: true
         with:
           projectPath: .
-          args: --no-bundle
+          args: --ignore-version-mismatches
+          tagName: v__VERSION__
+          releaseName: 'Cloudreve Desktop v__VERSION__'
+          releaseDraft: true
+          prerelease: false
 
-      - name: Upload Artifacts
+      - name: Upload Artifacts (Fallback)
         uses: actions/upload-artifact@v4
         with:
           name: Cloudreve-Desktop-Windows
