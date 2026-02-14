@@ -1,4 +1,4 @@
-import { Box, Button, CircularProgress, Container, InputAdornment, Snackbar, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Container, FormControlLabel, InputAdornment, Snackbar, Switch, Tooltip, Typography } from "@mui/material";
 import { openUrl, openPath } from "@tauri-apps/plugin-opener";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from '@tauri-apps/api/core';
@@ -98,6 +98,7 @@ export default function AddDrive({ mode = "add" }: AddDriveProps) {
   const [pageState, setPageState] = useState<PageState>(isReauthorize ? "url_input" : "url_input");
   const [localPath, setLocalPath] = useState("");
   const [driveName, setDriveName] = useState(driveNameQuery ? decodeURIComponent(driveNameQuery) : "");
+  const [oneWaySync, setOneWaySync] = useState(false);
   const lastFetchedUrl = useRef<string>("");
   const currentIconUrl = useRef<string | undefined>(undefined);
   const pkceSessionRef = useRef<PKCESession | null>(null);
@@ -334,6 +335,7 @@ export default function AddDrive({ mode = "add" }: AddDriveProps) {
           remote_path: pkceSessionRef.current!.callbackData!.path,
           user_id: pkceSessionRef.current!.callbackData!.user_id || "",
           drive_id: isReauthorize ? driveId : undefined,
+          sync_direction: oneWaySync ? "one_way_upload" : "two_way",
         }
       });
       // Success - switch to success state
@@ -517,6 +519,26 @@ export default function AddDrive({ mode = "add" }: AddDriveProps) {
                       },
                     }}
                   />
+                )}
+
+                {!isReauthorize && (
+                  <Tooltip title={t("settings.syncDirectionDescription")} placement="bottom-start">
+                    <FormControlLabel
+                      control={
+                        <Switch
+                          size="small"
+                          checked={oneWaySync}
+                          onChange={(e) => setOneWaySync(e.target.checked)}
+                        />
+                      }
+                      label={
+                        <Typography variant="body2" color="text.secondary">
+                          {t("settings.oneWaySync")}
+                        </Typography>
+                      }
+                      sx={{ ml: 0 }}
+                    />
+                  </Tooltip>
                 )}
 
                 <Button
