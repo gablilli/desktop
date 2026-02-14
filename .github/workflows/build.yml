@@ -24,27 +24,22 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
-          
+
       - name: Rust Cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: |
-            src-tauri -> target
-            crates -> target
+          workspaces: ". -> target"
 
       - name: Install frontend dependencies
         working-directory: ui
         run: yarn install --frozen-lockfile
-
-      - name: Build frontend
-        working-directory: ui
-        run: yarn build
 
       - name: Build Tauri App
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SKIP_VERSION_CHECK: true
+          CARGO_INCREMENTAL: 1
         with:
           projectPath: .
           args: --ignore-version-mismatches
@@ -52,12 +47,11 @@ jobs:
           releaseName: 'Cloudreve Desktop v__VERSION__'
           releaseDraft: true
           prerelease: false
-        
+
       - name: Upload Artifacts (Fallback)
         uses: actions/upload-artifact@v4
+        if: always() 
         with:
           name: Cloudreve-Desktop-Windows
           path: |
             target/release/cloudreve-desktop.exe
-            target/release/bundle/msi/*.msi
-            target/release/bundle/nsis/*.exe
