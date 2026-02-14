@@ -125,15 +125,15 @@ pub async fn add_drive(
     let drive_id = Uuid::new_v4().to_string();
 
     // Parse sync_direction from config or use default
-    let sync_direction = config
-        .sync_direction
-        .as_deref()
-        .and_then(|s| match s {
-            "one_way_upload" => Some(SyncDirection::OneWayUpload),
-            "two_way" => Some(SyncDirection::TwoWay),
-            _ => None,
-        })
-        .unwrap_or_default();
+    let sync_direction = match config.sync_direction.as_deref() {
+        Some("one_way_upload") => SyncDirection::OneWayUpload,
+        Some("two_way") => SyncDirection::TwoWay,
+        Some(invalid) => {
+            tracing::warn!(target: "drive", value = invalid, "Invalid sync_direction value, using default");
+            SyncDirection::default()
+        }
+        None => SyncDirection::default(),
+    };
 
     let drive_config = DriveConfig {
         id: drive_id,
