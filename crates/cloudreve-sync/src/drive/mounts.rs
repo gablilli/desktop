@@ -11,6 +11,7 @@ use crate::drive::sync::group_fs_events;
 use crate::drive::utils::recycle_bin_url;
 use crate::inventory::{DrivePropsUpdate, InventoryDb, TaskRecord};
 use crate::tasks::{TaskProgress, TaskQueue, TaskQueueConfig};
+use crate::utils::app::get_app_root;
 use crate::utils::toast;
 use ::serde::{Deserialize, Serialize};
 use anyhow::{Context, Result};
@@ -421,9 +422,12 @@ impl Mount {
             sync_root_info.set_display_name(config.name.clone());
             sync_root_info.set_hydration_type(HydrationType::Full);
             sync_root_info.set_population_type(PopulationType::Full);
-            if let Some(icon_path) = config.icon_path.as_ref() {
-                sync_root_info.set_icon(format!("{},0", icon_path));
-            }
+            let icon_path = config.icon_path.as_ref().map(|p| p.clone()).unwrap_or_else(|| {
+                // Use bundled cloudreve.ico as fallback when no icon_path is configured
+                let app_root = get_app_root();
+                format!("{}\\cloudreve.ico", app_root.image_path_general())
+            });
+            sync_root_info.set_icon(format!("{},0", icon_path));
             sync_root_info.set_version("1.0.0");
             sync_root_info
                 .set_recycle_bin_uri(recycle_bin_url(&config).unwrap_or_else(|_| "https://cloudreve.org".to_string()))
