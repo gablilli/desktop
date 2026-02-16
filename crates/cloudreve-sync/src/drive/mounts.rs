@@ -379,7 +379,7 @@ impl Mount {
 
     pub async fn start(&mut self) -> Result<()> {
         if !StorageProviderSyncRootManager::IsSupported()
-            .context("Windows Cloud Filter API check failed")?
+            .context("Failed to check Windows Cloud Filter API support")?
         {
             return Err(anyhow::anyhow!(
                 "Windows Cloud Filter API is not supported on this system. \
