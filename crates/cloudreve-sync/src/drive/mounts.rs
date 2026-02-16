@@ -481,7 +481,8 @@ impl Mount {
         .context("Failed to create file system watcher")?;
 
         tracing::info!(target: "drive::mounts", id = %self.id, "Watching FS");
-        // Clone sync_path so it can be used in the error message closure
+        // Clone sync_path to avoid holding the read lock during the watch() call,
+        // and to capture it in the error message closure
         let sync_path = self.config.read().await.sync_path.clone();
         debouncer.watch(
             &sync_path,
