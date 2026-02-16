@@ -378,9 +378,7 @@ impl Mount {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        if !StorageProviderSyncRootManager::IsSupported()
-            .context("Failed to check Windows Cloud Filter API support")?
-        {
+        if !StorageProviderSyncRootManager::IsSupported()? {
             return Err(anyhow::anyhow!(
                 "Windows Cloud Filter API is not supported on this system. \
                 This feature requires Windows 10 version 1809 or later with \
@@ -483,6 +481,7 @@ impl Mount {
         .context("Failed to create file system watcher")?;
 
         tracing::info!(target: "drive::mounts", id = %self.id, "Watching FS");
+        // Clone sync_path so it can be used in the error message closure
         let sync_path = self.config.read().await.sync_path.clone();
         debouncer.watch(
             &sync_path,
