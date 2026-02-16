@@ -404,6 +404,10 @@ impl Mount {
 
         let sync_root_id = config.sync_root_id.as_ref().unwrap();
 
+        // Ensure sync directory exists before registration
+        std::fs::create_dir_all(&config.sync_path)
+            .context("failed to create sync directory")?;
+
         // Register sync root if not registered
         if !sync_root_id.is_registered()? {
             tracing::info!(target: "drive::mounts", id = %self.id, "Registering sync root");
