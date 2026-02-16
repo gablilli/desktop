@@ -422,7 +422,7 @@ impl Mount {
             sync_root_info.set_display_name(config.name.clone());
             sync_root_info.set_hydration_type(HydrationType::Full);
             sync_root_info.set_population_type(PopulationType::Full);
-            let icon_path = config.icon_path.as_ref().map(|p| p.clone()).unwrap_or_else(|| {
+            let icon_path = config.icon_path.clone().unwrap_or_else(|| {
                 // Use bundled cloudreve.ico as fallback when no icon_path is configured
                 let app_root = get_app_root();
                 format!("{}\\cloudreve.ico", app_root.image_path_general())
