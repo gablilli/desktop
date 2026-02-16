@@ -379,9 +379,13 @@ impl Mount {
 
     pub async fn start(&mut self) -> Result<()> {
         if !StorageProviderSyncRootManager::IsSupported()
-            .context("Cloud Filter API is not supported")?
+            .context("Windows Cloud Filter API check failed")?
         {
-            return Err(anyhow::anyhow!("Cloud Filter API is not supported"));
+            return Err(anyhow::anyhow!(
+                "Windows Cloud Filter API is not supported on this system. \
+                This feature requires Windows 10 version 1809 or later with \
+                the Cloud Files API enabled."
+            ));
         }
 
         let mut write_guard = self.config.write().await;
@@ -395,7 +399,7 @@ impl Mount {
                     &write_guard.user_id,
                     &write_guard.sync_path,
                 )
-                .context("failed to generate sync root id")?,
+                .context("Failed to generate unique sync root identifier")?,
             );
         }
 
@@ -406,7 +410,7 @@ impl Mount {
 
         // Ensure sync directory exists before registration
         std::fs::create_dir_all(&config.sync_path)
-            .context("failed to create sync directory")?;
+            .with_context(|| format!("Failed to create sync directory at: {}", config.sync_path.display()))?;
 
         // Register sync root if not registered
         if !sync_root_id.is_registered()? {
@@ -421,15 +425,17 @@ impl Mount {
             sync_root_info.set_version("1.0.0");
             sync_root_info
                 .set_recycle_bin_uri(recycle_bin_url(&config).unwrap_or_else(|_| "https://cloudreve.org".to_string()))
-                .context("failed to set recycle bin uri")?;
+                .context("Failed to set recycle bin URI for sync root")?;
             sync_root_info
                 .set_path(Path::new(&config.sync_path))
-                .context("failed to set sync root path")?;
-            sync_root_info.add_custom_state(t!("shared").as_ref(), 1)?;
-            sync_root_info.add_custom_state(t!("accessible").as_ref(), 2)?;
+                .with_context(|| format!("Failed to set sync root path: {}", config.sync_path.display()))?;
+            sync_root_info.add_custom_state(t!("shared").as_ref(), 1)
+                .context("Failed to add 'shared' custom state to sync root")?;
+            sync_root_info.add_custom_state(t!("accessible").as_ref(), 2)
+                .context("Failed to add 'accessible' custom state to sync root")?;
             sync_root_id
                 .register(sync_root_info)
-                .context("failed to register sync root")?;
+                .context("Failed to register sync root with Windows Cloud Filter API")?;
         }
 
         // Add to search indexer for state management
@@ -447,7 +453,7 @@ impl Mount {
                     self.inventory.clone(),
                 ),
             )
-            .context("failed to connect to sync root")?;
+            .with_context(|| format!("Failed to connect to sync root at: {}", config.sync_path.display()))?;
 
         self.connection = Some(connection);
         self.start_fs_watcher().await?;

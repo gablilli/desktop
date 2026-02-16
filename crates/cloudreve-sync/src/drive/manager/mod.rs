@@ -173,7 +173,7 @@ impl DriveManager {
         .await;
         if let Err(e) = mount.start().await {
             tracing::error!(target: "drive", error = ?e, "Failed to start drive");
-            return Err(e).context("Failed to start drive");
+            return Err(e);
         }
 
         let mount_arc = Arc::new(mount);
