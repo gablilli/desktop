@@ -25,7 +25,27 @@ Now, users see specific error messages that include:
 
 ## Error Messages by Failure Point
 
-### 1. Cloud Filter API Not Supported
+### 1. Cloud Filter API Availability Check Failed
+
+**When**: Unable to check if Windows Cloud Filter API is available
+
+**Error Message**:
+```
+Failed to check Windows Cloud Filter API availability
+```
+
+**Possible Causes**:
+- Windows API system error
+- Corrupted system files
+
+**User Action**: 
+- Restart the computer
+- Run Windows System File Checker: `sfc /scannow`
+- Contact support if the issue persists
+
+---
+
+### 2. Cloud Filter API Not Supported
 
 **When**: Windows Cloud Filter API is not available on the system
 
@@ -34,11 +54,14 @@ Now, users see specific error messages that include:
 Windows Cloud Filter API is not supported on this system. This feature requires Windows 10 version 1809 or later with the Cloud Files API enabled.
 ```
 
-**User Action**: Upgrade to Windows 10 version 1809 or later
+**User Action**: 
+- Upgrade to Windows 10 version 1809 or later
+- Ensure the Cloud Files API feature is enabled in Windows
+- Verify that OneDrive or other cloud storage providers work correctly (they use the same API)
 
 ---
 
-### 2. Sync Root ID Generation Failed
+### 3. Sync Root ID Generation Failed
 
 **When**: Unable to generate a unique identifier for the sync root
 
@@ -51,7 +74,7 @@ Failed to generate unique sync root identifier
 
 ---
 
-### 3. Sync Directory Creation Failed
+### 4. Sync Directory Creation Failed
 
 **When**: Unable to create the local sync directory
 
@@ -73,7 +96,7 @@ Failed to create sync directory at: C:\Users\Username\CloudreveDrive
 
 ---
 
-### 4. Recycle Bin URI Failed
+### 5. Recycle Bin URI Failed
 
 **When**: Unable to set the recycle bin URI for the sync root
 
@@ -86,7 +109,7 @@ Failed to set recycle bin URI for sync root
 
 ---
 
-### 5. Sync Root Path Failed
+### 6. Sync Root Path Failed
 
 **When**: Unable to set the sync root path
 
@@ -104,7 +127,7 @@ Failed to set sync root path: C:\Users\Username\CloudreveDrive
 
 ---
 
-### 6. Custom State Registration Failed
+### 7. Custom State Registration Failed
 
 **When**: Unable to register custom file states with Windows
 
@@ -126,7 +149,7 @@ Failed to add 'accessible' custom state to sync root
 
 ---
 
-### 7. Sync Root Registration Failed
+### 8. Sync Root Registration Failed
 
 **When**: Unable to register the sync root with Windows Cloud Filter API
 
@@ -147,7 +170,7 @@ Failed to register sync root with Windows Cloud Filter API
 
 ---
 
-### 8. Connection to Sync Root Failed
+### 9. Connection to Sync Root Failed
 
 **When**: Unable to establish connection to the registered sync root
 
@@ -168,7 +191,7 @@ Failed to connect to sync root at: C:\Users\Username\CloudreveDrive
 
 ---
 
-### 9. File System Watcher Creation Failed
+### 10. File System Watcher Creation Failed
 
 **When**: Unable to create the file system watcher
 
@@ -181,7 +204,7 @@ Failed to create file system watcher
 
 ---
 
-### 10. File System Watch Start Failed
+### 11. File System Watch Start Failed
 
 **When**: Unable to start watching the sync directory for changes
 

@@ -378,7 +378,11 @@ impl Mount {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        if !StorageProviderSyncRootManager::IsSupported()? {
+        // Check if Windows Cloud Filter API is supported
+        let is_supported = StorageProviderSyncRootManager::IsSupported()
+            .context("Failed to check Windows Cloud Filter API availability")?;
+        
+        if !is_supported {
             return Err(anyhow::anyhow!(
                 "Windows Cloud Filter API is not supported on this system. \
                 This feature requires Windows 10 version 1809 or later with \
