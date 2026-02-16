@@ -479,13 +479,16 @@ impl Mount {
                     tracing::error!(target: "drive::mounts", errors = ?errors, "Failed to watch FS")
                 }
             },
-        )?;
+        )
+        .context("Failed to create file system watcher")?;
 
         tracing::info!(target: "drive::mounts", id = %self.id, "Watching FS");
+        let sync_path = self.config.read().await.sync_path.clone();
         debouncer.watch(
-            &self.config.read().await.sync_path,
+            &sync_path,
             RecursiveMode::Recursive,
-        )?;
+        )
+        .with_context(|| format!("Failed to start watching file system at: {}", sync_path.display()))?;
         *self.fs_watcher.lock().await = Some(debouncer);
         Ok(())
     }
