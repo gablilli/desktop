@@ -35,9 +35,9 @@ use windows::Storage::Provider::StorageProviderSyncRootManager;
 #[serde(rename_all = "snake_case")]
 pub enum SyncDirection {
     /// Two-way sync: changes are synchronized in both directions
-    #[default]
     TwoWay,
     /// One-way sync: only local changes are uploaded to the cloud (PC to Cloud)
+    #[default]
     OneWayUpload,
 }
 

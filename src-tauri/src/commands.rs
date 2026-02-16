@@ -66,6 +66,7 @@ pub struct AddDriveArgs {
     pub local_path: String,
     pub user_id: String,
     pub drive_id: Option<String>,
+    pub sync_direction: Option<String>,
 }
 
 /// Add a new drive configuration
@@ -123,6 +124,17 @@ pub async fn add_drive(
     // Generate a new UUID for a new drive
     let drive_id = Uuid::new_v4().to_string();
 
+    // Parse sync_direction from config or use default
+    let sync_direction = match config.sync_direction.as_deref() {
+        Some("one_way_upload") => SyncDirection::OneWayUpload,
+        Some("two_way") => SyncDirection::TwoWay,
+        Some(invalid) => {
+            tracing::warn!(target: "drive", value = invalid, "Invalid sync_direction value, using default");
+            SyncDirection::default()
+        }
+        None => SyncDirection::default(),
+    };
+
     let drive_config = DriveConfig {
         id: drive_id,
         name: config.drive_name,
@@ -136,7 +148,7 @@ pub async fn add_drive(
         user_id: config.user_id,
         sync_root_id: None,
         ignore_patterns: Vec::new(),
-        sync_direction: SyncDirection::default(),
+        sync_direction,
         extra: Default::default(),
     };
 
